@@ -1,0 +1,21 @@
+services:
+  agent:
+    build: .
+    # Authentication is read at runtime, never baked into the image. .env is
+    # gitignored; this file is optional so an exported shell variable works too.
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # Claude subscription token from `claude setup-token`. The primary path.
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
+      # Alternative: a standard API key. Set one or the other, not both.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-}
+    volumes:
+      # data is read-write: the agent reads local databases (tpch.duckdb) at the
+      # same path it uses on the host, and DuckDB needs write access to open a
+      # file read-write and to lay down its WAL.
+      - ./data:/app/data:rw
+      # transcripts is read-write so runs survive the container.
+      - ./transcripts:/app/transcripts:rw

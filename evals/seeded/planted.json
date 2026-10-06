@@ -1,0 +1,36 @@
+{
+  "source": "warehouse.duckdb",
+  "seeded": "warehouse_seeded.duckdb",
+  "revenue_before": 349838.75,
+  "revenue_after": 375409.75,
+  "anomalies": [
+    {
+      "id": "a1",
+      "name": "stationery price spike",
+      "month": "2026-07",
+      "signals": [
+        "stationery"
+      ],
+      "expect_effect": "rate"
+    },
+    {
+      "id": "a2",
+      "name": "APAC order collapse",
+      "month": "2026-08",
+      "signals": [
+        "apac"
+      ],
+      "expect_effect": "volume"
+    },
+    {
+      "id": "a3",
+      "name": "duplicated June orders",
+      "month": "2026-06",
+      "signals": [
+        "duplicat",
+        "aurora"
+      ],
+      "expect_effect": "volume"
+    }
+  ]
+}

@@ -1,0 +1,69 @@
+# Environment / secrets
+.env
+.env.local
+*.env
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Testing / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.tox/
+.nox/
+
+# Type checkers / linters
+.mypy_cache/
+.ruff_cache/
+.pyre/
+
+# Generated agent transcripts (keep the directory itself)
+transcripts/*
+!transcripts/.gitkeep
+
+# Local / generated databases (commit fixtures deliberately with `git add -f`)
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+data/*.duckdb
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Spider benchmark databases (large, downloaded manually - see evals/spider/README.md)
+evals/spider/databases/*
+!evals/spider/databases/.gitkeep
+
+# Benchmark run outputs (transcripts + predictions)
+runs/
+runs/

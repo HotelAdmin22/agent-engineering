@@ -1,0 +1,16 @@
+.git
+.venv
+.env
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+# Transcripts and local databases are bind-mounted at runtime — keeping them out
+# of the build context keeps the image small and builds fast.
+transcripts/*
+!transcripts/.gitkeep
+data/*.duckdb
+data/*.db
+data/*.sqlite
+data/*.sqlite3
