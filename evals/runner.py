@@ -22,7 +22,9 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from manual_loop.loop import run_loop, to_jsonable
+from manual_loop import loop as claude_loop
+from manual_loop import loop_openai as luna_loop
+from manual_loop.loop import to_jsonable
 
 from .sandbox import Sandbox
 
@@ -78,7 +80,10 @@ def extract_sql(text: str | None) -> str | None:
     return blocks[-1].strip() if blocks else None
 
 
-def run_task(task: dict, out_dir: Path) -> dict:
+WORKERS = {"luna": luna_loop, "claude": claude_loop}
+
+
+def run_task(task: dict, out_dir: Path, worker: str = "luna") -> dict:
     """Run one task. Returns a summary row; writes transcript + result csv."""
     db_path = DATABASES / f"{task['db']}.sqlite"
     instance = task["instance_id"]
@@ -89,7 +94,7 @@ def run_task(task: dict, out_dir: Path) -> dict:
         return row
 
     sandbox = Sandbox(db_path)
-    result = run_loop(
+    result = WORKERS[worker].run_loop(
         prompt=build_prompt(task),
         tools=sandbox.tools,
         execute=sandbox.execute,
@@ -138,6 +143,9 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--limit", type=int, help="run only the first N tasks")
     ap.add_argument("--out", type=Path, help="output directory")
+    # Default luna: it is what authenticates here, and it is cheap enough to
+    # run 135 tasks against without thinking about it.
+    ap.add_argument("--worker", choices=sorted(WORKERS), default="luna")
     args = ap.parse_args()
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
@@ -151,7 +159,7 @@ def main() -> None:
 
     summary = []
     for i, task in enumerate(tasks, 1):
-        row = run_task(task, out_dir)
+        row = run_task(task, out_dir, args.worker)
         summary.append(row)
         print(
             f"[{i}/{len(tasks)}] {row['instance_id']:<10} "

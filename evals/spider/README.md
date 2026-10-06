@@ -8,17 +8,29 @@ run locally, no cloud credentials, no per-query cost.
 - `tasks.jsonl` — the 135 `local*` tasks (`instance_id`, `db`, `question`, `external_knowledge`)
 - `gold/spider2lite_eval.jsonl` — the grading key
 
+## Fetched automatically
+
+```bash
+uv run python evals/spider/fetch.py
+```
+
+Pulls everything that lives in the public xlang-ai/Spider2 repo:
+
+- `documents/` — the 8 markdown files our tasks cite (13 of the 135 reference
+  one; they are part of the task, not cheating)
+- `evaluation_suite/` — Spider's own `evaluate.py` and `evaluate_utils.py`
+- `gold/exec_result/` — 328 gold CSVs, the local tasks only
+
+`--schema` additionally pulls per-database DDL and column metadata.
+
 ## You must download (Google Drive blocks scripted download)
 
-1. **Databases** — [this zip](https://drive.usercontent.google.com/download?id=1coEVsCZq-Xvj9p2TnhBFoFTsY-UoYGmG&export=download).
-   Unzip and put the `.sqlite` files directly in `databases/`, so the runner
-   finds `databases/<db>.sqlite` for each task's `db` field.
+**The databases.** [This zip](https://drive.usercontent.google.com/download?id=1coEVsCZq-Xvj9p2TnhBFoFTsY-UoYGmG&export=download).
+Unzip so the files land directly in `databases/` as `<db>.sqlite`, one per
+task's `db` field. The upstream repo ships schema metadata for these databases
+but not the databases themselves, so this is the one manual step.
 
-2. **External knowledge docs** — 13 tasks cite a markdown file (`RFM.md`,
-   `f1_overtake.md`, ...). Copy them from the Spider2 repo's
-   `spider2-lite/resource/documents/` into `documents/`. Without them those
-   13 tasks are unanswerable, and they are not cheating — they are part of
-   the task.
+Until then the runner reports `missing_db` per task and scores nothing.
 
 ## gold/ is not for the agent
 
@@ -32,5 +44,5 @@ directory becomes a cheating surface.
 
 ## Scoring
 
-Use Spider's own `evaluation_suite/evaluate.py`. Do not write your own scorer —
+Use Spider's own `evaluation_suite/evaluate.py`, now vendored by `fetch.py`. Do not write your own scorer —
 one that is slightly too lenient invents improvements that never happened.
