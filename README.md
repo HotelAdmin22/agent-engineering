@@ -27,7 +27,7 @@ pass^3 0.917, confidently-wrong rate 0.028.
 
 | Phase | State |
 | --- | --- |
-| 0 Observe | done — `src/agent_engineering/` |
+| 0 Observe | done — removed; see git history before `d41821a` |
 | 1 Agent Loop | done — `manual_loop/`, by hand, twice (Anthropic and OpenAI) |
 | 2 Workflow | done — orient, plan, act, verify, recover |
 | 3 Prompting | done — environment facts live in the catalog, not the prompt |

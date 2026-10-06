@@ -17,5 +17,5 @@ services:
       # same path it uses on the host, and DuckDB needs write access to open a
       # file read-write and to lay down its WAL.
       - ./data:/app/data:rw
-      # transcripts is read-write so runs survive the container.
-      - ./transcripts:/app/transcripts:rw
+      # runs is read-write so transcripts survive the container.
+      - ./runs:/app/runs:rw

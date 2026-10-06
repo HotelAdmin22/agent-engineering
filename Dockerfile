@@ -35,6 +35,6 @@ RUN uv sync --frozen --no-dev
 # No ENTRYPOINT on purpose: `docker compose run agent <anything>` replaces this
 # CMD wholesale, so both of these work —
 #     docker compose run --rm agent
-#     docker compose run --rm agent uv run agent "your prompt"
-# `agent` is the console script declared in pyproject.toml.
-CMD ["agent", "Read the README and tell me what this project is for."]
+#     docker compose run --rm agent uv run python -m agent "your question"
+CMD ["uv", "run", "python", "-m", "agent",
+     "Why did revenue fall in September 2026 compared with August?"]
