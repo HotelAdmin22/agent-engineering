@@ -131,7 +131,8 @@ def run_loop(
         tool_results = []
         for block in tool_use:
             content, is_error = execute(block.name, block.input)
-            emit({"kind": "tool_result", "turn": index, "content": content, "is_error": is_error})
+            emit({"kind": "tool_result", "turn": index, "name": block.name,
+                  "content": content, "is_error": is_error})
             tool_results.append(
                 {
                     "type": "tool_result",

@@ -116,7 +116,8 @@ def run_loop(
             else:
                 content, is_error = execute(call.name, tool_input)
 
-            emit({"kind": "tool_result", "turn": index, "content": content, "is_error": is_error})
+            emit({"kind": "tool_result", "turn": index, "name": call.name,
+                  "content": content, "is_error": is_error})
             items.append(
                 {
                     "type": "function_call_output",

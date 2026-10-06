@@ -25,10 +25,14 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from agent.audit import AuditLog
+
 from manual_loop import cost as cost_model
 from manual_loop import loop as claude_loop
 from manual_loop import loop_openai as luna_loop
 from manual_loop.loop import to_jsonable
+
+from orchestrator.trace import ConsoleTracer
 
 from .sandbox import Sandbox
 
@@ -86,8 +90,37 @@ def extract_sql(text: str | None) -> str | None:
 
 WORKERS = {"luna": luna_loop, "claude": claude_loop}
 
+# Cap on what a single event contributes to the log. A full result set in an
+# audit line makes the file unreadable and leaks more than it needs to.
+AUDIT_EVENT_CHARS = 600
 
-def run_task(task: dict, out_dir: Path, worker: str = "luna") -> dict:
+
+def _recorder(audit: AuditLog, tracer=None):
+    """Feed loop events to the audit log, and optionally to the console.
+
+    The loop emits tool_call BEFORE the tool runs and tool_result after, so a
+    query that hangs leaves a tool_call with no matching result -- which names
+    the exact SQL that died. The previous version wrote nothing until the task
+    finished, so a 26-minute hang left an empty directory.
+    """
+
+    def on_event(event: dict) -> None:
+        kind = event.get("kind", "event")
+        fields = {
+            k: (v[:AUDIT_EVENT_CHARS] if isinstance(v, str) else v)
+            for k, v in event.items()
+            if k != "kind"
+        }
+        audit.event(kind, **fields)
+        if tracer:
+            tracer(event)
+
+    return on_event
+
+
+
+
+def run_task(task: dict, out_dir: Path, worker: str = "luna", tracer=None) -> dict:
     """Run one task. Returns a summary row; writes transcript + result csv."""
     db_path = DATABASES / f"{task['db']}.sqlite"
     instance = task["instance_id"]
@@ -98,11 +131,20 @@ def run_task(task: dict, out_dir: Path, worker: str = "luna") -> dict:
         return row
 
     sandbox = Sandbox(db_path)
+
+    # Written per event, before the task finishes, so an interrupted task is
+    # still diagnosable.
+    inst_dir = out_dir / instance
+    inst_dir.mkdir(parents=True, exist_ok=True)
+    audit = AuditLog(inst_dir / "audit.jsonl", instance)
+    audit.event("task", db=task["db"], question=task["question"][:600])
+
     result = WORKERS[worker].run_loop(
         prompt=build_prompt(task),
         tools=sandbox.tools,
         execute=sandbox.execute,
         system=SYSTEM,
+        trace=_recorder(audit, tracer),
     )
 
     sql = extract_sql(result.final_text)
@@ -113,8 +155,6 @@ def run_task(task: dict, out_dir: Path, worker: str = "luna") -> dict:
         "usage": result.usage_totals,
     }
 
-    inst_dir = out_dir / instance
-    inst_dir.mkdir(parents=True, exist_ok=True)
     (inst_dir / "transcript.json").write_text(
         json.dumps(
             {"task": task, "run": to_jsonable(result), "sql": sql}, indent=2, default=str
@@ -158,6 +198,8 @@ def main() -> None:
     # the single run -- the token budget already bounds that.
     ap.add_argument("--max-usd", type=float, help="stop the sweep past this spend")
     ap.add_argument("--max-tokens", type=int, help="stop the sweep past this many tokens")
+    ap.add_argument("--trace", action="store_true",
+                    help="print every tool call as it happens")
     ap.add_argument("--resume", action="store_true",
                     help="skip tasks already completed in --out")
     args = ap.parse_args()
@@ -165,6 +207,8 @@ def main() -> None:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     out_dir = args.out or Path("runs") / stamp
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    tracer = ConsoleTracer('spider') if args.trace else None
 
     tasks = load_tasks()
     if args.limit:
@@ -193,7 +237,7 @@ def main() -> None:
         print(f"[{i}/{len(tasks)}] {task['instance_id']:<10} {task['db']:<28} "
               f"running...", flush=True)
         started = time.monotonic()
-        row = run_task(task, out_dir, args.worker)
+        row = run_task(task, out_dir, args.worker, tracer)
         row["seconds"] = round(time.monotonic() - started, 1)
         summary.append(row)
         with summary_path.open("a", encoding="utf-8") as fh:

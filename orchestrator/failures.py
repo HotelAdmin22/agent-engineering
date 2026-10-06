@@ -26,14 +26,25 @@ def _read_jsonl(path: Path) -> list[dict]:
     return rows
 
 
+def _tool_of(row: dict) -> str:
+    """Audit rows come from two producers with slightly different shapes.
+
+    The Planner logs `tool`; the Spider runner logs loop trace events, which
+    name it `name`. A collector that assumes one shape crashes on the other --
+    which it did, taking 13 tests with it.
+    """
+    return str(row.get("tool") or row.get("name") or "unknown")
+
+
 def _signature(row: dict) -> str:
     """Group key. Specific enough to be actionable, general enough to cluster."""
+    tool = _tool_of(row)
     if row.get("traceback"):
         error = (row.get("error") or "").split("\n")[0]
-        return f"{row['tool']} :: {error[:90]}"
+        return f"{tool} :: {error[:90]}"
     stage = row.get("stage") or "?"
-    reason = (row.get("error") or "").split(":")[0][:70]
-    return f"{row['tool']} :: [{stage}] {reason}"
+    reason = (row.get("error") or row.get("content") or "").split(":")[0][:70]
+    return f"{tool} :: [{stage}] {reason}"
 
 
 def collect() -> dict:
@@ -49,10 +60,10 @@ def collect() -> dict:
         runs_seen.add(audit.parent.name)
         for row in _read_jsonl(audit):
             if row.get("kind") == "tool_call":
-                tool_calls[row["tool"]] += 1
+                tool_calls[_tool_of(row)] += 1
             if row.get("kind") != "tool_result" or not row.get("is_error"):
                 continue
-            tool_errors[row["tool"]] += 1
+            tool_errors[_tool_of(row)] += 1
             row["_run"] = audit.parent.name
             (crashes if row.get("traceback") else refusals)[_signature(row)].append(row)
 
