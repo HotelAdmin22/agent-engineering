@@ -22,6 +22,9 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+from manual_loop import cost as cost_model
 from manual_loop import loop as claude_loop
 from manual_loop import loop_openai as luna_loop
 from manual_loop.loop import to_jsonable
@@ -140,12 +143,20 @@ def run_task(task: dict, out_dir: Path, worker: str = "luna") -> dict:
 
 
 def main() -> None:
+    # This module is run as `-m evals.runner`, so nothing else has loaded the
+    # credentials for it.
+    load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+
     ap = argparse.ArgumentParser()
     ap.add_argument("--limit", type=int, help="run only the first N tasks")
     ap.add_argument("--out", type=Path, help="output directory")
     # Default luna: it is what authenticates here, and it is cheap enough to
     # run 135 tasks against without thinking about it.
     ap.add_argument("--worker", choices=sorted(WORKERS), default="luna")
+    # A 135-task sweep is where cost actually accrues. Bound the sweep, not
+    # the single run -- the token budget already bounds that.
+    ap.add_argument("--max-usd", type=float, help="stop the sweep past this spend")
+    ap.add_argument("--max-tokens", type=int, help="stop the sweep past this many tokens")
     args = ap.parse_args()
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
@@ -158,9 +169,25 @@ def main() -> None:
     print(f"running {len(tasks)} tasks -> {out_dir}\n")
 
     summary = []
+    spent_tokens = 0
+    spent_usd = 0.0
+    model = WORKERS[args.worker].MODEL
+
     for i, task in enumerate(tasks, 1):
         row = run_task(task, out_dir, args.worker)
         summary.append(row)
+
+        usage = row.get("usage") or {}
+        spent_tokens += usage.get("total_tokens", 0) or 0
+        spent_usd += cost_model.estimate(model, usage) or 0.0
+        row["usd"] = cost_model.estimate(model, usage)
+
+        over_tokens = args.max_tokens and spent_tokens >= args.max_tokens
+        over_usd = args.max_usd and spent_usd >= args.max_usd
+        if over_tokens or over_usd:
+            print(f"\n  budget reached after {i} task(s): "
+                  f"{spent_tokens:,} tokens, ${spent_usd:.4f}")
+            break
         print(
             f"[{i}/{len(tasks)}] {row['instance_id']:<10} "
             f"{row['status']:<14} turns={row.get('num_turns', 0):<3} "

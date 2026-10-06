@@ -18,6 +18,8 @@ import anthropic
 MODEL = "claude-opus-5"
 MAX_TOKENS = 8000
 MAX_ITERATIONS = 15
+REQUEST_TIMEOUT = 120.0
+MAX_RETRIES = 5
 
 
 @dataclass
@@ -70,7 +72,9 @@ def run_loop(
     therefore the sandbox -- lives entirely with whoever calls this.
     """
     emit = trace or (lambda event: None)
-    client = client or anthropic.Anthropic()
+    client = client or anthropic.Anthropic(
+        timeout=REQUEST_TIMEOUT, max_retries=MAX_RETRIES
+    )
     messages: list[dict] = [{"role": "user", "content": prompt}]
     turns: list[Turn] = []
 

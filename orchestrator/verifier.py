@@ -18,10 +18,16 @@ taken from SignalPilot's verifier agent (Apache-2.0).
 import json
 import re
 
-from manual_loop.loop import run_loop as run_claude_loop
+from manual_loop import loop as claude_loop
+from manual_loop import loop_openai as luna_loop
 from .findings import EXPECTATIONS, Finding
 
-VERIFIER_MODEL_NOTE = "claude-opus-5 via manual_loop.loop"
+# Runs on OpenAI for now: the Anthropic key the Claude loop needs is not set,
+# and a verifier that has never executed is not a verifier. The asymmetric
+# worker/judge split is still the goal -- point this at a stronger model than
+# the worker once there is a key for one.
+WORKERS = {"luna": luna_loop, "claude": claude_loop}
+DEFAULT_WORKER = "luna"
 
 JSON_BLOCK = re.compile(r"```json\s*(.*?)```", re.S | re.I)
 
@@ -151,7 +157,8 @@ def parse_findings(text: str | None, task_id: str) -> list[Finding]:
     return out
 
 
-def verify(question: str, sql: str | None, sandbox, task_id: str, client=None, trace=None) -> tuple[list[Finding], dict]:
+def verify(question: str, sql: str | None, sandbox, task_id: str, client=None,
+           trace=None, worker: str = DEFAULT_WORKER) -> tuple[list[Finding], dict]:
     """Audit one answer. Returns (findings, run metadata)."""
     if not sql:
         return [Finding(f"{task_id}:check1:executability", "CHECK 1", "FAIL",
@@ -159,7 +166,7 @@ def verify(question: str, sql: str | None, sandbox, task_id: str, client=None, t
                         evidence_query="SELECT 1", expected_after_fix="one_row",
                         note="worker produced no SQL")], {"skipped": True}
 
-    result = run_claude_loop(
+    result = WORKERS[worker].run_loop(
         prompt=PROMPT.format(question=question, sql=sql),
         tools=sandbox.tools,
         execute=sandbox.execute,
@@ -170,6 +177,7 @@ def verify(question: str, sql: str | None, sandbox, task_id: str, client=None, t
     meta = {
         "stopped_because": result.stopped_because,
         "num_turns": result.num_turns,
+        "worker": worker,
         "usage": result.usage_totals,
     }
     return parse_findings(result.final_text, task_id), meta

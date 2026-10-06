@@ -21,6 +21,12 @@ from .loop import MAX_ITERATIONS, Result, Turn
 
 MODEL = "gpt-5.6-luna"
 
+# A bare create() call loses a whole run to one transient 429. The SDK already
+# does exponential backoff with jitter, so configuring it beats hand-rolling a
+# retry loop that gets the jitter wrong.
+REQUEST_TIMEOUT = 120.0     # seconds per request, not per run
+MAX_RETRIES = 5
+
 
 def to_openai_tools(tools: list[dict]) -> list[dict]:
     """Anthropic tool shape -> the Responses API's flat function shape."""
@@ -49,7 +55,7 @@ def run_loop(
     import json
 
     emit = trace or (lambda event: None)
-    client = client or OpenAI()
+    client = client or OpenAI(timeout=REQUEST_TIMEOUT, max_retries=MAX_RETRIES)
     spent = 0
     items: list[Any] = [{"role": "user", "content": prompt}]
     turns: list[Turn] = []

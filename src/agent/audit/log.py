@@ -15,11 +15,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from ..evidence.redact import redact_obj
+
 
 class AuditLog:
-    def __init__(self, path: Path | str, run_id: str):
+    def __init__(self, path: Path | str, run_id: str, redact: bool = True):
         self.path = Path(path)
         self.run_id = run_id
+        self.redact = redact
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
     def event(self, kind: str, **fields: Any) -> None:
@@ -27,7 +30,8 @@ class AuditLog:
             "ts": datetime.now(timezone.utc).isoformat(),
             "run_id": self.run_id,
             "kind": kind,
-            **fields,
+            # SQL literals and tool arguments carry warehouse values.
+            **(redact_obj(fields) if self.redact else fields),
         }
         with self.path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(row, default=str) + "\n")

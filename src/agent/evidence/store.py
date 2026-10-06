@@ -16,11 +16,14 @@ because "what was revenue last month" is overwhelmingly the shape asked for.
 import hashlib
 import json
 import re
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
+
+from .redact import columns_masked, redact_rows
 
 # "segments[0].delta" -> ["segments", "0", "delta"]
 _PATH_STEP = re.compile(r"[a-zA-Z_]\w*|\d+")
@@ -62,17 +65,23 @@ class EvidenceRecord(BaseModel):
 class EvidenceStore:
     """Append-only store. Hands out ids, never changes a record."""
 
-    def __init__(self, path: Path | None = None):
+    def __init__(self, path: Path | None = None, redact: bool = True):
         self._records: dict[str, EvidenceRecord] = {}
         self._next = 1
+        self._lock = threading.Lock()
         self.path = Path(path) if path else None
+        self.redact = redact
         if self.path:
             self.path.parent.mkdir(parents=True, exist_ok=True)
 
     def _new_id(self) -> str:
-        eid = f"e{self._next}"
-        self._next += 1
-        return eid
+        # `self._next += 1` is a read-modify-write. One Planner per run is the
+        # intended contract, but a shared store silently handing out duplicate
+        # ids would corrupt the one thing this class exists to guarantee.
+        with self._lock:
+            eid = f"e{self._next}"
+            self._next += 1
+            return eid
 
     def put_query(
         self,
@@ -118,8 +127,20 @@ class EvidenceStore:
     def _append(self, record: EvidenceRecord) -> EvidenceRecord:
         self._records[record.id] = record
         if self.path:
+            # In memory the record is untouched -- placeholders resolve against
+            # it during the run. What goes to disk is masked, because runs/ is
+            # not a place to leave customer rows lying around.
+            persisted = record
+            if self.redact and record.rows:
+                persisted = record.model_copy(deep=True)
+                persisted.rows = redact_rows(persisted.columns, persisted.rows)
+                masked = columns_masked(persisted.columns)
+                if masked:
+                    persisted.note = (
+                        f"{persisted.note} [redacted columns: {', '.join(masked)}]"
+                    ).strip()
             with self.path.open("a", encoding="utf-8") as fh:
-                fh.write(record.model_dump_json() + "\n")
+                fh.write(persisted.model_dump_json() + "\n")
         return record
 
     def get(self, evidence_id: str) -> EvidenceRecord | None:

@@ -198,3 +198,67 @@ def test_a_report_citing_segments_verifies_clean(nested):
         nested,
     )
     assert result.ok, [f.detail for f in result.failures]
+
+
+# --- redaction -----------------------------------------------------------
+#
+# runs/ is not a place to leave customer rows. The in-memory record stays
+# intact because placeholders resolve against it; only the persisted copy is
+# masked.
+
+from agent.evidence.redact import columns_masked, redact_obj, redact_rows
+
+
+def test_sensitive_columns_are_masked_by_name():
+    cols = ["customer_id", "customer_name", "email", "amount"]
+    rows = [[1, "Ada Okafor", "ada@example.com", 249.0]]
+    out = redact_rows(cols, rows)[0]
+    assert out == [1, "<redacted>", "<redacted>", 249.0]
+
+
+def test_values_are_masked_by_shape_whatever_the_column_is_called():
+    out = redact_rows(["attr_7"], [["reach me at ada@example.com"]])[0]
+    assert "<email>" in out[0]
+    assert "ada@example.com" not in out[0]
+
+
+@pytest.mark.parametrize("value,expected", [
+    ("card 4111 1111 1111 1111", "<card>"),
+    ("ssn 123-45-6789", "<ssn>"),
+    ("call +44 7700 900123", "<phone>"),
+])
+def test_value_shapes(value, expected):
+    assert expected in redact_rows(["notes"], [[value]])[0][0]
+
+
+def test_numbers_are_never_masked():
+    """Aggregates are the answer. Masking them makes evidence useless."""
+    assert redact_rows(["revenue", "units"], [[37851.75, 180]])[0] == [37851.75, 180]
+
+
+def test_audit_fields_are_redacted():
+    out = redact_obj({"sql": "SELECT * FROM c WHERE email='ada@example.com'"})
+    assert "ada@example.com" not in out["sql"]
+
+
+def test_memory_is_untouched_but_disk_is_masked(tmp_path):
+    store = EvidenceStore(tmp_path / "e.jsonl")
+    record = store.put_query(
+        "SELECT ...", ["customer_name", "amount"], [["Ada Okafor", 249.0]]
+    )
+    assert record.rows[0][0] == "Ada Okafor"          # placeholders need this
+    import json
+    persisted = json.loads((tmp_path / "e.jsonl").read_text(encoding="utf-8"))
+    assert persisted["rows"][0][0] == "<redacted>"
+    assert "customer_name" in persisted["note"]
+
+
+def test_redaction_can_be_turned_off(tmp_path):
+    store = EvidenceStore(tmp_path / "e.jsonl", redact=False)
+    store.put_query("SELECT ...", ["customer_name"], [["Ada Okafor"]])
+    import json
+    assert json.loads((tmp_path / "e.jsonl").read_text())["rows"][0][0] == "Ada Okafor"
+
+
+def test_columns_masked_names_what_was_hidden():
+    assert columns_masked(["email", "amount", "phone"]) == ["email", "phone"]
