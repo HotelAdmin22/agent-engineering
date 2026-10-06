@@ -262,3 +262,46 @@ def test_redaction_can_be_turned_off(tmp_path):
 
 def test_columns_masked_names_what_was_hidden():
     assert columns_masked(["email", "amount", "phone"]) == ["email", "phone"]
+
+
+# --- the Spider sandbox has the same bound -------------------------------
+
+def test_spider_sandbox_aborts_a_runaway_query(tmp_path):
+    import sqlite3, time
+    from evals.sandbox import Sandbox
+
+    db = tmp_path / "big.sqlite"
+    con = sqlite3.connect(db)
+    con.executescript(
+        "CREATE TABLE t(a INT);"
+        "WITH RECURSIVE s(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM s WHERE i<20000)"
+        " INSERT INTO t SELECT i FROM s;"
+    )
+    con.commit(); con.close()
+
+    sandbox = Sandbox(db, timeout=3)
+    started = time.monotonic()
+    out, is_error = sandbox.execute(
+        "query_database", {"sql": "SELECT COUNT(*) FROM t a, t b, t c"}
+    )
+    elapsed = time.monotonic() - started
+
+    assert is_error
+    assert "too expensive" in out
+    assert elapsed < 15, f"progress handler did not fire ({elapsed:.1f}s)"
+
+
+def test_spider_sandbox_normal_query_unaffected(tmp_path):
+    import sqlite3
+    from evals.sandbox import Sandbox
+
+    db = tmp_path / "small.sqlite"
+    con = sqlite3.connect(db)
+    con.executescript("CREATE TABLE t(a INT); INSERT INTO t VALUES (1),(2),(3);")
+    con.commit(); con.close()
+
+    out, is_error = Sandbox(db, timeout=3).execute(
+        "query_database", {"sql": "SELECT COUNT(*) FROM t"}
+    )
+    assert not is_error
+    assert "3" in out

@@ -21,6 +21,7 @@ Two structural guarantees, both enforced here rather than requested:
      rows are returned to anyone.
 """
 
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -33,6 +34,12 @@ from ..evidence.store import EvidenceRecord, EvidenceStore
 DIALECT = "duckdb"
 MAX_ROWS = 1000
 MAX_JOINS = 6
+
+# DuckDB has no statement_timeout, so the bound is a watchdog that calls
+# interrupt(). MAX_ROWS bounds what comes back; it does nothing about how long
+# the engine spends computing it, and an unbounded join on a real warehouse
+# will sit there indefinitely.
+STATEMENT_TIMEOUT = 30.0
 
 
 @dataclass
@@ -63,6 +70,7 @@ class Gateway:
         allowlist: set[str] | None = None,
         max_rows: int = MAX_ROWS,
         max_joins: int = MAX_JOINS,
+        timeout: float = STATEMENT_TIMEOUT,
     ):
         self.db_path = Path(db_path)
         if not self.db_path.exists():
@@ -73,6 +81,7 @@ class Gateway:
         self.store = store if store is not None else EvidenceStore()
         self.max_rows = max_rows
         self.max_joins = max_joins
+        self.timeout = timeout
         self.allowlist = allowlist if allowlist is not None else self._discover_tables()
 
     # --- connection ------------------------------------------------------
@@ -237,15 +246,28 @@ class Gateway:
             return decision, None
 
         con = self._connect()
+        watchdog = None
+        if self.timeout:
+            watchdog = threading.Timer(self.timeout, con.interrupt)
+            watchdog.daemon = True
+            watchdog.start()
         try:
             cur = con.execute(decision.sql)
             columns = [d[0] for d in cur.description] if cur.description else []
             rows = cur.fetchall()
+        except duckdb.InterruptException:
+            return _refuse(
+                "execute",
+                f"Query aborted after {self.timeout:.0f}s. It is too expensive -- "
+                "add a WHERE clause, a LIMIT, or aggregate instead of scanning.",
+            ), None
         except duckdb.Error as exc:
             # Execution errors are refusals too: the model needs the text to
             # repair the query, and nothing was recorded as evidence.
             return _refuse("execute", f"{type(exc).__name__}: {exc}"), None
         finally:
+            if watchdog:
+                watchdog.cancel()
             con.close()
 
         truncated = len(rows) > self.max_rows

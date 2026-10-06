@@ -231,3 +231,42 @@ def test_lockdown_does_not_break_the_warehouse(gw):
     decision, record = gw.run_sql("SELECT COUNT(*) AS n FROM fct_orders")
     assert decision.allowed
     assert record.fields["n"] > 0
+
+
+# --- statement timeouts --------------------------------------------------
+#
+# Added after a Spider sweep sat on one task for 26 minutes. MAX_ROWS bounds
+# what comes BACK; it does nothing about how long the engine spends computing
+# it. The agent had written a cartesian join on a 134k-row table.
+
+def test_an_expensive_query_is_aborted(tmp_path):
+    gw = Gateway(WAREHOUSE, store=EvidenceStore(tmp_path / "e.jsonl"), timeout=3)
+    sql = (
+        "WITH RECURSIVE t(i) AS "
+        "(SELECT 1 UNION ALL SELECT i + 1 FROM t WHERE i < 2000000000) "
+        "SELECT COUNT(*) AS n FROM t"
+    )
+    import time
+    started = time.monotonic()
+    decision, record = gw.run_sql(sql)
+    elapsed = time.monotonic() - started
+
+    assert not decision.allowed
+    assert decision.stage == "execute"
+    assert "too expensive" in decision.reason      # actionable for the model
+    assert record is None                          # no evidence from a dead query
+    assert elapsed < 15, f"watchdog did not fire ({elapsed:.1f}s)"
+
+
+def test_the_timeout_does_not_slow_normal_queries(gw):
+    decision, record = gw.run_sql("SELECT COUNT(*) AS n FROM fct_orders")
+    assert decision.allowed
+    assert record.fields["n"] == 590
+
+
+def test_the_watchdog_does_not_leak_between_queries(gw):
+    """A cancelled timer must not interrupt the NEXT query on a new connection."""
+    gw.run_sql("SELECT 1 AS a FROM fct_orders LIMIT 1")
+    for _ in range(3):
+        decision, record = gw.run_sql("SELECT COUNT(*) AS n FROM fct_orders")
+        assert decision.allowed, decision.reason

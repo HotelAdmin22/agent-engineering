@@ -16,6 +16,7 @@ not exist.
 
 import argparse
 import csv
+import time
 import json
 import re
 import sys
@@ -186,7 +187,14 @@ def main() -> None:
             print(f"[{i}/{len(tasks)}] {task['instance_id']:<10} skipped (already done)")
             continue
 
+        # Announce BEFORE running. Printing only on completion means a hang
+        # is indistinguishable from work -- one task sat for 26 minutes and
+        # the console showed nothing at all.
+        print(f"[{i}/{len(tasks)}] {task['instance_id']:<10} {task['db']:<28} "
+              f"running...", flush=True)
+        started = time.monotonic()
         row = run_task(task, out_dir, args.worker)
+        row["seconds"] = round(time.monotonic() - started, 1)
         summary.append(row)
         with summary_path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(row, default=str) + '\n')
@@ -205,7 +213,9 @@ def main() -> None:
         print(
             f"[{i}/{len(tasks)}] {row['instance_id']:<10} "
             f"{row['status']:<14} turns={row.get('num_turns', 0):<3} "
-            f"sql={'y' if row.get('has_sql') else 'n'}"
+            f"sql={'y' if row.get('has_sql') else 'n'} "
+            f"{row['seconds']}s",
+            flush=True,
         )
 
     (out_dir / "summary.jsonl").write_text(

@@ -19,11 +19,18 @@ Two structural guarantees, both enforced here rather than requested:
 """
 
 import sqlite3
+import time
 from pathlib import Path
 
 # Enough rows to answer an aggregate; few enough that one careless SELECT *
 # cannot fill the context window.
 MAX_ROWS = 50
+
+# A statement deadline, in seconds. fetchmany(MAX_ROWS) bounds what comes BACK;
+# it does nothing about how long SQLite spends computing the result. A single
+# unbounded join on a large database ran for 26 minutes here before anyone
+# noticed, because nothing was watching.
+STATEMENT_TIMEOUT = 30.0
 
 QUERY_DATABASE_TOOL = {
     "name": "query_database",
@@ -50,9 +57,11 @@ QUERY_DATABASE_TOOL = {
 class Sandbox:
     """A read-only, single-database execution surface."""
 
-    def __init__(self, db_path: Path, max_rows: int = MAX_ROWS):
+    def __init__(self, db_path: Path, max_rows: int = MAX_ROWS,
+                 timeout: float = STATEMENT_TIMEOUT):
         self.db_path = Path(db_path)
         self.max_rows = max_rows
+        self.timeout = timeout
         if not self.db_path.exists():
             raise FileNotFoundError(f"database not found: {self.db_path}")
 
@@ -78,6 +87,15 @@ class Sandbox:
             return sqlite3.SQLITE_OK
 
         con.set_authorizer(authorizer)
+
+        # SQLite calls this every N virtual-machine instructions; returning
+        # non-zero aborts the statement. This is the only way to bound a query
+        # from inside sqlite3 -- there is no statement_timeout pragma.
+        if self.timeout:
+            deadline = time.monotonic() + self.timeout
+            con.set_progress_handler(
+                lambda: 1 if time.monotonic() > deadline else 0, 10_000
+            )
         return con
 
     def query(self, sql: str) -> str:
@@ -118,5 +136,14 @@ class Sandbox:
             return f"No such tool: {name}", True
         try:
             return self.query(tool_input["sql"]), False
+        except sqlite3.OperationalError as exc:
+            if "interrupted" in str(exc).lower():
+                return (
+                    f"Query aborted after {self.timeout:.0f}s. It is too "
+                    "expensive -- add a WHERE clause, a LIMIT, or aggregate "
+                    "instead of scanning.",
+                    True,
+                )
+            return f"{type(exc).__name__}: {exc}", True
         except Exception as exc:
             return f"{type(exc).__name__}: {exc}", True
