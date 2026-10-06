@@ -131,3 +131,70 @@ def test_render_leaves_prose_alone(store):
     out = render("No numbers here at all.", store)
     assert out.text == "No numbers here at all."
     assert out.used == []
+
+
+# --- path placeholders ---------------------------------------------------
+#
+# Added after a real run failed with "6 numbers typed directly into the report:
+# 17, 0, 17, 0, 17, 1". None of them were typed. The model had written
+# {{e17.segments[0].delta}} to cite one segment of a contribution breakdown;
+# the grammar only allowed {{eN.field}}, so the regex did not match, the
+# placeholder was not stripped, and the indices were read as digits.
+
+@pytest.fixture
+def nested():
+    st = EvidenceStore()
+    st.put_computation(fields={
+        "total_delta": -24692.25,
+        "segments": [
+            {"label": "enterprise", "delta": -18000.50, "share_of_change_pct": 72.9},
+            {"label": "smb", "delta": -6691.75, "share_of_change_pct": 27.1},
+        ],
+    })                                      # e1
+    return st
+
+
+def test_indexed_placeholder_is_not_a_typed_number():
+    text = "enterprise fell {{e17.segments[0].delta}} ({{e17.segments[0].share_of_change_pct}}%)"
+    assert find_unbacked_numbers(text) == []
+
+
+def test_indexed_placeholder_resolves(nested):
+    out = render("fell by {{e1.segments[0].delta}} of {{e1.total_delta}}", nested)
+    assert out.ok, out.errors
+    assert "-18,000.5" in out.text
+    assert "-24,692.25" in out.text
+
+
+def test_nested_label_resolves(nested):
+    assert "smb" in render("{{e1.segments[1].label}}", nested).text
+
+
+def test_plain_fields_still_work(nested):
+    assert render("{{e1.total_delta}}", nested).ok
+
+
+def test_index_out_of_range_is_an_error_not_a_blank(nested):
+    out = render("{{e1.segments[9].delta}}", nested)
+    assert not out.ok
+    assert "index out of range" in out.errors[0]
+    assert "{{e1.segments[9].delta}}" in out.text      # stays visible
+
+
+def test_missing_nested_field_names_what_is_available(nested):
+    out = render("{{e1.segments[0].nope}}", nested)
+    assert not out.ok
+    assert "delta" in out.errors[0]
+
+
+def test_walking_into_a_scalar_is_an_error(nested):
+    assert not render("{{e1.total_delta.x}}", nested).ok
+
+
+def test_a_report_citing_segments_verifies_clean(nested):
+    result = check_report(
+        "Enterprise fell {{e1.segments[0].delta}}, "
+        "{{e1.segments[0].share_of_change_pct}}% of {{e1.total_delta}}.",
+        nested,
+    )
+    assert result.ok, [f.detail for f in result.failures]

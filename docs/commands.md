@@ -1,8 +1,42 @@
 # Command sheet
 
-Every command here has been run in this repo. Work from the repo root.
+Every command here has been run in this repo.
+
+## Run from the repo root
+
+```powershell
+cd C:\Users\l\agent-engineering
+```
+
+`uv run` looks for `pyproject.toml` in the **current** directory. From anywhere
+else it falls back to the system Python, which has none of the dependencies,
+and you get:
+
+```
+C:\Python312\python.exe: No module named agent
+```
+
+The giveaway is the interpreter path: a working run uses `.venv`, not
+`C:\Python312`. Either `cd` first, or name the project explicitly:
+
+```powershell
+uv run --directory C:\Users\l\agent-engineering python -m agent "your question"
+```
+
+To make it one word from anywhere, add this to your PowerShell profile
+(`notepad $PROFILE`):
+
+```powershell
+function agent { uv run --directory C:\Users\l\agent-engineering python -m agent @args }
+```
+
+Then `agent "why did revenue fall in September?"` works from any directory.
 
 There is no `jq` on this machine, so the inspection commands use Python.
+
+**Shell note.** Commands run the same in PowerShell and Git Bash, with one
+exception: discarding the live trace is `2>$null` in PowerShell and
+`2>/dev/null` in bash. PowerShell variants are given where they differ.
 
 ---
 
@@ -21,14 +55,12 @@ uv run python -m agent "why did revenue fall in September?"
 
 ```bash
 uv run python -m agent --quiet "what was revenue in September 2026?"
-uv run python -m agent "..." 2>/dev/null     # answer only, trace discarded
+uv run python -m agent "..." 2>/dev/null     # bash:       answer only
+uv run python -m agent "..." 2>$null         # PowerShell: answer only
 uv run python -m agent "..." > run.log 2>&1  # keep both
 ```
 
 Exit code is `0` when verification passed, `1` when it did not — so it scripts.
-
-> The data agent is `python -m agent`. A bare `uv run agent` is the old Phase 0
-> script and is not what you want.
 
 ---
 
@@ -124,6 +156,16 @@ python -c "import json,glob,os; f=max(glob.glob('runs/*/evidence.jsonl'),key=os.
 
 # any errors, with their tracebacks
 python -c "import json,glob; [print(r['tool'],'|',r.get('error'),chr(10),r.get('traceback') or '') for f in glob.glob('runs/**/audit.jsonl',recursive=True) for r in map(json.loads,open(f)) if r.get('kind')=='tool_result' and r.get('is_error')]"
+```
+
+PowerShell, if you prefer native cmdlets:
+
+```powershell
+$d = Get-ChildItem runs -Directory | Sort-Object LastWriteTime | Select-Object -Last 1
+(Get-Content "$($d.FullName)nswer.json" -Raw | ConvertFrom-Json).answer
+
+Get-Content "$($d.FullName)udit.jsonl" | ForEach-Object { $_ | ConvertFrom-Json } |
+  Where-Object { $_.kind -eq 'tool_call' } | Group-Object tool | Select-Object Count, Name
 ```
 
 ---

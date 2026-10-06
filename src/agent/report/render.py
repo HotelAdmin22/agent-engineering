@@ -15,7 +15,14 @@ from dataclasses import dataclass, field
 
 from ..evidence import EvidenceStore
 
-PLACEHOLDER = re.compile(r"\{\{\s*(e\d+)\.([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}")
+# {{e7.delta_pct}} and {{e7.segments[0].delta}} are both legal. Indexing was
+# added after a real run: the model needed to cite one segment out of a
+# contribution breakdown, invented `segments[0].delta` because it is the
+# obvious spelling, and the verifier read the `7` and `0` as typed digits and
+# failed the report. The grammar was too small for what the tools return.
+PLACEHOLDER = re.compile(
+    r"\{\{\s*(e\d+)\.([a-zA-Z_]\w*(?:\[\d+\]|\.[a-zA-Z_]\w*)*)\s*\}\}"
+)
 
 
 @dataclass

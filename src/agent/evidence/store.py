@@ -15,11 +15,15 @@ because "what was revenue last month" is overwhelmingly the shape asked for.
 
 import hashlib
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
+
+# "segments[0].delta" -> ["segments", "0", "delta"]
+_PATH_STEP = re.compile(r"[a-zA-Z_]\w*|\d+")
 
 
 class EvidenceRecord(BaseModel):
@@ -122,7 +126,12 @@ class EvidenceStore:
         return self._records.get(evidence_id)
 
     def resolve(self, evidence_id: str, field: str) -> Any:
-        """Look up one named value. Raises if it is not there.
+        """Look up one value by path. Raises if it is not there.
+
+        `field` may be a plain name (`delta_pct`) or a path into the structure
+        the tool returned (`segments[0].delta`). Contribution and mix-vs-rate
+        records hold a list of segments, and a report that can only cite the
+        totals cannot say which segment moved.
 
         Raising rather than returning None is the point: a placeholder that
         silently renders as empty is how an uncited number reaches a report.
@@ -130,12 +139,28 @@ class EvidenceStore:
         record = self.get(evidence_id)
         if record is None:
             raise KeyError(f"no such evidence: {evidence_id}")
-        if field not in record.fields:
-            raise KeyError(
-                f"{evidence_id} has no field {field!r} "
-                f"(has: {sorted(record.fields) or 'none'})"
-            )
-        return record.fields[field]
+
+        current: Any = record.fields
+        walked = evidence_id
+        for step in _PATH_STEP.findall(field):
+            walked += f".{step}" if not step.isdigit() else f"[{step}]"
+            if step.isdigit():
+                index = int(step)
+                if not isinstance(current, (list, tuple)):
+                    raise KeyError(f"{walked}: not a list")
+                if index >= len(current):
+                    raise KeyError(
+                        f"{walked}: index out of range ({len(current)} items)"
+                    )
+                current = current[index]
+            else:
+                if not isinstance(current, dict) or step not in current:
+                    available = (
+                        sorted(current) if isinstance(current, dict) else type(current).__name__
+                    )
+                    raise KeyError(f"{walked}: no such field (has: {available})")
+                current = current[step]
+        return current
 
     def ids(self) -> list[str]:
         return list(self._records)
