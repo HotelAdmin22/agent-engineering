@@ -157,6 +157,8 @@ def main() -> None:
     # the single run -- the token budget already bounds that.
     ap.add_argument("--max-usd", type=float, help="stop the sweep past this spend")
     ap.add_argument("--max-tokens", type=int, help="stop the sweep past this many tokens")
+    ap.add_argument("--resume", action="store_true",
+                    help="skip tasks already completed in --out")
     args = ap.parse_args()
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
@@ -173,9 +175,21 @@ def main() -> None:
     spent_usd = 0.0
     model = WORKERS[args.worker].MODEL
 
+    # Append per task, not once at the end. A sweep of 135 tasks takes hours;
+    # an interrupted one that loses its completed work is worse than useless,
+    # because the tokens were already spent. Verified the hard way.
+    summary_path = out_dir / "summary.jsonl"
+
     for i, task in enumerate(tasks, 1):
+        done = out_dir / task["instance_id"] / "transcript.json"
+        if args.resume and done.exists():
+            print(f"[{i}/{len(tasks)}] {task['instance_id']:<10} skipped (already done)")
+            continue
+
         row = run_task(task, out_dir, args.worker)
         summary.append(row)
+        with summary_path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(row, default=str) + '\n')
 
         usage = row.get("usage") or {}
         spent_tokens += usage.get("total_tokens", 0) or 0
