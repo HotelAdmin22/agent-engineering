@@ -1,19 +1,4 @@
-"""The planner loop: the model proposes, the gateway disposes.
 
-This is the only place the pieces meet. It owns the tool surface, the budgets,
-and the repair attempt -- and it owns none of the arithmetic, none of the SQL
-execution, and none of the trust.
-
-Reuses manual_loop.loop_openai rather than writing a second agent loop. That
-loop already handles the Responses API, parallel tool calls, and stop reasons;
-duplicating it here to make it "the data agent's loop" would be two
-implementations of the same bug surface.
-
-What the model gets back from a tool is deliberately thin: an evidence id, the
-column names, the row count, and the top ten rows. Never the full result. A
-model handed every row summarises it in prose, and that prose is an uncited
-number by the time it reaches the report.
-"""
 
 import json
 import traceback
@@ -226,7 +211,7 @@ class Planner:
         self.store = EvidenceStore(self.run_dir / "evidence.jsonl")
         self.gateway = Gateway(warehouse, store=self.store)
         self.catalog = Catalog(self.gateway)
-        self.audit = AuditLog(self.run_dir / "audit.jsonl", self.run_id)
+        self.audit = AuditLog(self.run_dir / "audit.jsonl", run=self.run_id)
         # Same ledger type the orchestrator uses, so repair outcomes across
         # both loops are queryable the same way.
         self.ledger = Ledger(self.run_dir / "ledger.jsonl")

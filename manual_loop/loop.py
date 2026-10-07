@@ -105,7 +105,8 @@ def run_loop(
 
         emit({"kind": "text", "turn": index, "text": text})
         for b in tool_use:
-            emit({"kind": "tool_call", "turn": index, "name": b.name, "input": b.input})
+            emit({"kind": "tool_call", "turn": index, "name": b.name,
+                  "call_id": b.id, "input": b.input})
 
         # Every stop_reason is handled. An unhandled one is an infinite loop or
         # a silently truncated answer.
@@ -132,7 +133,7 @@ def run_loop(
         for block in tool_use:
             content, is_error = execute(block.name, block.input)
             emit({"kind": "tool_result", "turn": index, "name": block.name,
-                  "content": content, "is_error": is_error})
+                  "call_id": block.id, "content": content, "is_error": is_error})
             tool_results.append(
                 {
                     "type": "tool_result",

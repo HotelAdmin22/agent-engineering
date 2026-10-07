@@ -106,11 +106,13 @@ def _recorder(audit: AuditLog, tracer=None):
 
     def on_event(event: dict) -> None:
         kind = event.get("kind", "event")
-        fields = {
-            k: (v[:AUDIT_EVENT_CHARS] if isinstance(v, str) else v)
-            for k, v in event.items()
-            if k != "kind"
-        }
+        # The loop emits a text event every turn whether or not the model said
+        # anything. An empty one is pure noise in a log you have to read.
+        if kind == "text" and not (event.get("text") or "").strip():
+            if tracer:
+                tracer(event)
+            return
+        fields = {k: v for k, v in event.items() if k != "kind"}
         audit.event(kind, **fields)
         if tracer:
             tracer(event)
@@ -120,7 +122,8 @@ def _recorder(audit: AuditLog, tracer=None):
 
 
 
-def run_task(task: dict, out_dir: Path, worker: str = "luna", tracer=None) -> dict:
+def run_task(task: dict, out_dir: Path, worker: str = "luna", tracer=None,
+             run_id: str = "adhoc") -> dict:
     """Run one task. Returns a summary row; writes transcript + result csv."""
     db_path = DATABASES / f"{task['db']}.sqlite"
     instance = task["instance_id"]
@@ -136,7 +139,9 @@ def run_task(task: dict, out_dir: Path, worker: str = "luna", tracer=None) -> di
     # still diagnosable.
     inst_dir = out_dir / instance
     inst_dir.mkdir(parents=True, exist_ok=True)
-    audit = AuditLog(inst_dir / "audit.jsonl", instance)
+    # run = the sweep, task = this instance. Fifteen logs that share a run
+    # id can be read as one sweep; fifteen that do not, cannot.
+    audit = AuditLog(inst_dir / "audit.jsonl", run=run_id, task=instance)
     audit.event("task", db=task["db"], question=task["question"][:600])
 
     result = WORKERS[worker].run_loop(
@@ -237,7 +242,7 @@ def main() -> None:
         print(f"[{i}/{len(tasks)}] {task['instance_id']:<10} {task['db']:<28} "
               f"running...", flush=True)
         started = time.monotonic()
-        row = run_task(task, out_dir, args.worker, tracer)
+        row = run_task(task, out_dir, args.worker, tracer, run_id=out_dir.name)
         row["seconds"] = round(time.monotonic() - started, 1)
         summary.append(row)
         with summary_path.open("a", encoding="utf-8") as fh:

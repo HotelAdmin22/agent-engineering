@@ -86,7 +86,8 @@ def run_loop(
 
         emit({"kind": "text", "turn": index, "text": response.output_text or ""})
         for c in calls:
-            emit({"kind": "tool_call", "turn": index, "name": c.name, "input": c.arguments})
+            emit({"kind": "tool_call", "turn": index, "name": c.name,
+                  "call_id": c.call_id, "input": c.arguments})
 
         if response.status == "incomplete":
             reason = getattr(response.incomplete_details, "reason", "incomplete")
@@ -117,7 +118,8 @@ def run_loop(
                 content, is_error = execute(call.name, tool_input)
 
             emit({"kind": "tool_result", "turn": index, "name": call.name,
-                  "content": content, "is_error": is_error})
+                  "call_id": call.call_id, "content": content,
+                  "is_error": is_error})
             items.append(
                 {
                     "type": "function_call_output",
