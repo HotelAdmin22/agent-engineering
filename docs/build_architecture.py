@@ -18,6 +18,7 @@ Run it after a change:
 import ast
 import io
 import json
+import re
 import subprocess
 from string import Template
 from datetime import datetime, timezone
@@ -64,16 +65,35 @@ LAYERS = [
      "ledger that records whether a repair landed."),
 ]
 
-PIPELINE = [
-    ("Question", "Asked in plain English against one DuckDB warehouse."),
-    ("Orient", "search_catalog finds the tables and the metric definitions."),
-    ("Propose", "The model writes SQL. It never holds a connection."),
-    ("Authorize", "The gateway parses, checks, bounds and executes -- or refuses."),
-    ("Evidence", "Every result is recorded immutably and given an id."),
-    ("Compute", "Deltas and mix-vs-rate run on evidence ids, not on typed numbers."),
-    ("Verify", "Any digit not backed by evidence fails; parts must sum to the whole."),
-    ("Render", "{{e7.delta_pct}} becomes a figure. Only here."),
+# The loop the project exists to run. Not "how one question is answered" --
+# that is one box inside step 2.
+ITERATION = [
+    ("Sweep", "docker compose run --rm sweep",
+     "135 Spider tasks through one agent, in a container that cannot reach the "
+     "answer key. Resumable; a sweep takes hours."),
+    ("Record", "runs/<sweep>/<task>/",
+     "answer.json, evidence.jsonl, audit.jsonl per task. Written DURING the run, "
+     "so an interrupted task is still diagnosable."),
+    ("Verify", "deterministic, no model",
+     "Did it produce SQL? Did it actually RUN the SQL it submitted? Did that "
+     "return rows? A model never grades its own work."),
+    ("Score", "evals/spider/evaluation_suite/evaluate.py",
+     "Spider's own scorer, on the HOST, against gold the container never saw. "
+     "Never a home-grown scorer -- a lenient one invents improvements."),
+    ("Triage", "evals/run_triage.py",
+     "A read-only agent reads failure signatures across every run and proposes "
+     "fixes. It has no write tool and cannot propose changes to its own judges."),
+    ("Experiment", "experiments/results.jsonl",
+     "One variable changed, re-measured, written down whether it helped or not. "
+     "`inconclusive` is a real and common outcome."),
 ]
+
+# Each entry is derived from a real file at build time, so the page cannot
+# claim an isolation property the configuration does not actually have.
+CONTAINMENT_SOURCES = {
+    "image": ROOT / ".dockerignore",
+    "mounts": ROOT / "compose.yaml",
+}
 
 
 def module_docs():
@@ -148,7 +168,11 @@ def live_status():
     accuracy = latest.get("execution_accuracy")
     wrong = latest.get("confidently_wrong_rate")
 
+    image = image_state()
     return [
+        {"label": "Container image", "value": image["size"],
+         "ok": image["built"],
+         "note": "docker compose build -- a sweep should not run outside it"},
         {"label": "Warehouse", "value": "built" if warehouse.exists() else "missing",
          "ok": warehouse.exists(), "note": "data/warehouse.duckdb (seeded, reproducible)"},
         {"label": "Seeded anomalies", "value": "built" if seeded.exists() else "missing",
@@ -181,6 +205,74 @@ def live_status():
     ]
 
 
+def containment() -> list[dict]:
+    """What the container can and cannot reach -- read from the real files.
+
+    Parsed from .dockerignore and compose.yaml rather than written down, so the
+    page cannot claim an isolation property the configuration does not have.
+    """
+    ignore = ""
+    ignore_path = ROOT / ".dockerignore"
+    if ignore_path.exists():
+        ignore = ignore_path.read_text(encoding="utf-8")
+    compose = ""
+    compose_path = ROOT / "compose.yaml"
+    if compose_path.exists():
+        compose = compose_path.read_text(encoding="utf-8")
+
+    def excluded(pattern: str) -> bool:
+        return any(
+            line.strip() == pattern or line.strip().rstrip("/") == pattern.rstrip("/")
+            for line in ignore.splitlines()
+            if line.strip() and not line.strip().startswith("#")
+        )
+
+    mounts = re.findall(r"^\s+- (\./[^:]+):([^:]+):(\w+)$", compose, re.M)
+    mounted = {src.lstrip("./"): mode for src, _dst, mode in mounts}
+
+    rows = [
+        {"what": "Spider gold answers", "path": "evals/spider/gold/",
+         "state": "not in image" if excluded("evals/spider/gold/") else "IN IMAGE",
+         "ok": excluded("evals/spider/gold/"),
+         "why": "The benchmark answer key. Scored on the host, never shipped."},
+        {"what": "Warehouse gold set", "path": "evals/gold/",
+         "state": "not in image" if excluded("evals/gold/") else "IN IMAGE",
+         "ok": excluded("evals/gold/"),
+         "why": "The questions the agent is graded on."},
+        {"what": "Seeded-anomaly key", "path": "evals/seeded/planted.json",
+         "state": "not in image" if excluded("evals/seeded/planted.json") else "IN IMAGE",
+         "ok": excluded("evals/seeded/planted.json"),
+         "why": "What was planted, and where. Grading key for detection."},
+        {"what": "Credentials", "path": ".env",
+         "state": "not in image" if excluded(".env") else "IN IMAGE",
+         "ok": excluded(".env"),
+         "why": "Supplied as a runtime environment variable, never baked in."},
+        {"what": "Spider databases", "path": "evals/spider/databases",
+         "state": f"mounted {mounted.get('evals/spider/databases', 'NOT MOUNTED')}",
+         "ok": mounted.get("evals/spider/databases") == "ro",
+         "why": "Read-only, so the container could not modify the benchmark even "
+                "if the gateway were wrong."},
+        {"what": "Run outputs", "path": "runs/",
+         "state": f"mounted {mounted.get('runs', 'NOT MOUNTED')}",
+         "ok": mounted.get("runs") == "rw",
+         "why": "The only thing the container writes, and the only thing that "
+                "leaves it."},
+    ]
+    return rows
+
+
+def image_state() -> dict:
+    """Is the image built, and how big. Best effort -- docker may not be up."""
+    try:
+        out = subprocess.run(
+            ["docker", "images", "agent-engineering-sweep", "--format", "{{.Size}}"],
+            capture_output=True, text=True, timeout=10,
+        ).stdout.strip()
+    except Exception:
+        out = ""
+    return {"built": bool(out), "size": out or "not built"}
+
+
 def git_state():
     def run(*args):
         try:
@@ -199,6 +291,11 @@ def git_state():
 def guarantees():
     """Structural restrictions, each verified rather than asserted."""
     return [
+        {"what": "The agent runs in a container",
+         "how": "<code>docker compose run --rm sweep</code>",
+         "why": "The image pins Python and every dependency from uv.lock, and "
+                "carries neither the answer key nor the credentials. A sweep is "
+                "reproducible from source rather than from one laptop's state."},
         {"what": "Read-only database handle",
          "how": "sqlite3 opened with <code>file:...?mode=ro</code>",
          "why": "A write is rejected by SQLite itself, whatever SQL arrives. A keyword "
@@ -229,7 +326,7 @@ def guarantees():
     ]
 
 
-def render(modules, status, git, layers, pipeline, guards):
+def render(modules, status, git, layers, iteration, guards, contain, image):
     def card(m):
         why = "".join("<p>%s</p>" % escape(p) for p in m["why"][:2])
         return (
@@ -250,11 +347,20 @@ def render(modules, status, git, layers, pipeline, guards):
         )
 
     steps = ""
-    for i, (name, desc) in enumerate(pipeline):
+    for i, (name, cmd, desc) in enumerate(iteration):
         steps += (
-            '<li><span class="n">%d</span><div><strong>%s</strong><span>%s</span></div></li>'
-            % (i + 1, escape(name), escape(desc))
+            '<li><span class="n">%d</span><div><strong>%s</strong>'
+            '<code class="cmd">%s</code><span>%s</span></div></li>'
+            % (i + 1, escape(name), escape(cmd), escape(desc))
         )
+
+    contain_rows = "".join(
+        '<tr class="%s"><td>%s</td><td><code>%s</code></td>'
+        '<td class="v">%s</td><td class="note">%s</td></tr>'
+        % ("ok" if c["ok"] else "gap", escape(c["what"]), escape(c["path"]),
+           escape(c["state"]), escape(c["why"]))
+        for c in contain
+    )
 
     rows = "".join(
         '<tr class="%s"><td>%s</td><td class="v">%s</td><td class="note">%s</td></tr>'
@@ -281,6 +387,8 @@ def render(modules, status, git, layers, pipeline, guards):
         "rows": rows,
         "guards": guard_html,
         "n_modules": len(modules),
+        "contain_rows": contain_rows,
+        "image": escape(image["size"]),
     })
 
 
@@ -327,6 +435,9 @@ ol.pipe li:last-child { border-bottom:0; }
 ol.pipe .n { flex:0 0 26px; height:26px; border-radius:50%; background:var(--accent);
   color:#fff; display:grid; place-items:center; font-size:12.5px; font-weight:650; }
 ol.pipe strong { display:block; }
+ol.pipe .cmd { display:inline-block; font-size:12px; color:var(--accent);
+  background:var(--code); border:1px solid var(--line); padding:1px 7px;
+  border-radius:5px; margin:3px 0; }
 ol.pipe span:not(.n) { color:var(--muted); font-size:14.5px; }
 .layer { margin-bottom:36px; }
 .pkg { font-size:12.5px; color:var(--accent); background:var(--code); padding:2px 8px;
@@ -355,14 +466,26 @@ footer { margin-top:64px; padding-top:20px; border-top:1px solid var(--line);
 </style></head><body><div class="wrap">
 
 <h1>Agent Architecture</h1>
-<p class="sub">A worker answers, a read-only verifier audits, and the repair is checked
-mechanically rather than believed. This page is generated from the source tree, so it
-cannot describe a system that no longer exists.</p>
+<p class="sub"><strong>One agent, run in a container, measured against a benchmark it
+cannot see the answers to, and improved one variable at a time.</strong> Everything
+below is generated from the source tree and the real Docker configuration, so the page
+cannot claim a property this repository does not have.</p>
 <div class="meta"><span>built ${built}</span><span>branch ${branch}</span>
 <span>commit ${commit}</span>${dirty}<span>${n_modules} modules</span></div>
 
-<h2>One cycle</h2>
+<h2>The loop this exists to run</h2>
+<p class="blurb">A single question being answered is one box inside step 2. The unit of
+work here is a sweep, and the unit of progress is a recorded experiment.</p>
 <ol class="pipe">${steps}</ol>
+
+<h2>The sandbox &mdash; what the container cannot reach</h2>
+<p class="blurb">Derived from <code>.dockerignore</code> and <code>compose.yaml</code> at
+build time, not written down. The container produces predictions; the <em>host</em>
+scores them, so the thing being measured cannot reach the answer key even if every
+in-process rule failed.</p>
+<table>${contain_rows}</table>
+<p class="blurb"><code>docker compose run --rm sweep --limit 135 --resume</code>
+&mdash; image <code>${image}</code></p>
 
 <h2>Live status</h2>
 <table>${rows}</table>
@@ -382,7 +505,10 @@ at build time.</footer>
 
 def main():
     modules = module_docs()
-    html = render(modules, live_status(), git_state(), LAYERS, PIPELINE, guarantees())
+    html = render(
+        modules, live_status(), git_state(), LAYERS, ITERATION,
+        guarantees(), containment(), image_state(),
+    )
     OUT.write_text(html, encoding="utf-8")
     print("wrote %s (%d bytes, %d modules)"
           % (OUT.relative_to(ROOT), len(html), len(modules)))
