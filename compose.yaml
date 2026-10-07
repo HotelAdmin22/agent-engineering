@@ -1,21 +1,38 @@
+# Run a Spider sweep in a container.
+#
+#   docker compose build
+#   docker compose run --rm sweep --limit 5
+#   docker compose run --rm sweep --limit 135 --resume
+#
+# Why a container at all: a sweep takes hours and must be reproducible. The
+# image pins Python and every dependency; the host supplies only the credential
+# and the databases.
+#
+# Nothing is baked in. The API key arrives as a runtime environment variable,
+# and the 1.6 GB of Spider databases are bind-mounted read-only rather than
+# copied into the image.
+
 services:
-  agent:
+  sweep:
     build: .
-    # Authentication is read at runtime, never baked into the image. .env is
+    # The key is read at runtime, never baked into the image. .env is
     # gitignored; this file is optional so an exported shell variable works too.
     env_file:
       - path: .env
         required: false
     environment:
-      # Claude subscription token from `claude setup-token`. The primary path.
-      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
-      # Alternative: a standard API key. Set one or the other, not both.
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      # Optional: set these and the runner reports dollars instead of tokens.
+      LUNA_INPUT_USD_PER_MTOK: ${LUNA_INPUT_USD_PER_MTOK:-}
+      LUNA_OUTPUT_USD_PER_MTOK: ${LUNA_OUTPUT_USD_PER_MTOK:-}
+      PYTHONUNBUFFERED: "1"
     volumes:
-      # data is read-write: the agent reads local databases (tpch.duckdb) at the
-      # same path it uses on the host, and DuckDB needs write access to open a
-      # file read-write and to lay down its WAL.
-      - ./data:/app/data:rw
-      # runs is read-write so transcripts survive the container.
+      # Read-only: the agent must not be able to modify the benchmark. The
+      # gateway opens them read-only too, but a read-only mount means the
+      # container could not write them even if the gateway were wrong.
+      - ./evals/spider/databases:/app/evals/spider/databases:ro
+      # The gold answers are NOT mounted. Nothing in the container can reach
+      # them, which is a stronger guarantee than the sandbox rules alone.
       - ./runs:/app/runs:rw
+    # Spider sweeps are long; without this a container is killed on a slow task.
+    stop_grace_period: 60s

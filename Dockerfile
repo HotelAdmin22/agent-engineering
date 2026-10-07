@@ -1,23 +1,29 @@
-# Node, not Python, is the base image on purpose.
+# A Spider sweep takes hours and has to be reproducible. The image pins Python
+# and every dependency from uv.lock; the host supplies only the credential and
+# the databases.
 #
-# The Claude Agent SDK does not call the API directly — it spawns the Claude
-# Code CLI as a subprocess (see claude_agent_sdk/_internal/transport/
-# subprocess_cli.py, which searches PATH for `claude` and raises
-# CLINotFoundError telling you to `npm install -g @anthropic-ai/claude-code`).
-# So the CLI, and therefore Node, has to be in the image. uv supplies Python.
-FROM node:20-slim
+# This used to be a Node image carrying the Claude Code CLI, because the Phase 0
+# agent used claude-agent-sdk, which does not call the API -- it spawns the CLI
+# as a subprocess. Nothing does that any more: the agent talks to the OpenAI
+# Responses API directly. Node and the CLI are gone, and so is ~400 MB.
+FROM python:3.12-slim
 
-# uv, copied from its official image — pinned, no installer script.
+# python:*-slim ships with NO CA certificates. Without this every TLS connection
+# fails with CERTIFICATE_VERIFY_FAILED, which looks exactly like a network or
+# proxy problem and is neither. Found the hard way: the first container sweep
+# died on APIConnectionError with a valid key and working DNS.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# uv, copied from its official image -- pinned, no installer script.
 COPY --from=ghcr.io/astral-sh/uv:0.12.13 /uv /uvx /usr/local/bin/
-
-# The CLI the SDK shells out to.
-RUN npm install -g @anthropic-ai/claude-code && npm cache clean --force
 
 ENV UV_LINK_MODE=copy \
     UV_COMPILE_BYTECODE=1 \
-    UV_PYTHON_INSTALL_DIR=/opt/python \
     UV_PROJECT_ENVIRONMENT=/opt/venv \
     UV_FROZEN=1 \
+    PYTHONUNBUFFERED=1 \
     PATH="/opt/venv/bin:$PATH"
 
 WORKDIR /app
@@ -28,13 +34,22 @@ WORKDIR /app
 COPY pyproject.toml uv.lock .python-version ./
 RUN uv sync --frozen --no-install-project --no-dev
 
-# Everything .dockerignore permits — source, prompts, docs, placeholders.
+# Everything .dockerignore permits. Note what it does NOT permit: the Spider
+# gold answers, the warehouse gold set, the seeded-anomaly key, .env, and the
+# 1.6 GB of databases. The container produces predictions; the host scores them.
+# The thing being measured cannot reach the answers even if every sandbox rule
+# failed.
 COPY . .
 RUN uv sync --frozen --no-dev
 
-# No ENTRYPOINT on purpose: `docker compose run agent <anything>` replaces this
-# CMD wholesale, so both of these work —
-#     docker compose run --rm agent
-#     docker compose run --rm agent uv run python -m agent "your question"
-CMD ["uv", "run", "python", "-m", "agent",
-     "Why did revenue fall in September 2026 compared with August?"]
+# An ENTRYPOINT so flags pass straight through:
+#
+#     docker compose run --rm sweep --limit 5
+#     docker compose run --rm sweep --limit 135 --resume --max-tokens 2000000
+#
+# Override it for anything else:
+#     docker compose run --rm --entrypoint sh sweep
+ENTRYPOINT ["uv", "run", "python", "-u", "-m", "evals.runner"]
+
+# A small, safe default.
+CMD ["--limit", "5"]

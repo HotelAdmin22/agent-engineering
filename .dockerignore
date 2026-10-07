@@ -14,3 +14,20 @@ data/*.duckdb
 data/*.db
 data/*.sqlite
 data/*.sqlite3
+
+# Spider databases: 1.6 GB, bind-mounted at runtime. Putting them in the build
+# context makes every build copy them, and bakes a benchmark fixture into an
+# image that is supposed to be reproducible from source.
+evals/spider/databases/*.sqlite
+
+# Run outputs are produced by the container, not shipped into it.
+runs/
+docs/*.html
+
+# The benchmark's answer key. The container produces predictions; the HOST
+# scores them. Keeping gold out of the image means the thing being measured
+# cannot reach the answers even if every other rule failed -- a structural
+# guarantee rather than a sandbox rule.
+evals/spider/gold/
+evals/gold/
+evals/seeded/planted.json
