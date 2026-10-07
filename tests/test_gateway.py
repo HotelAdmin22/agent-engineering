@@ -6,6 +6,9 @@ rule that is only tested for its headline case tends to have a neighbour that
 slips through.
 """
 
+import sqlite3
+from pathlib import Path
+
 import duckdb
 import pytest
 
@@ -123,7 +126,7 @@ def test_connection_is_read_only_whatever_sql_arrives(gw):
     If every check in authorize() were deleted, the connection itself would
     still refuse to write.
     """
-    con = gw._connect()
+    con, watchdog = gw._connect()
     try:
         for sql in ("DELETE FROM fct_orders",
                     "UPDATE fct_orders SET amount = 0",
@@ -132,7 +135,7 @@ def test_connection_is_read_only_whatever_sql_arrives(gw):
             with pytest.raises(duckdb.Error):
                 con.execute(sql)
     finally:
-        con.close()
+        gw._close(con, watchdog)
 
 
 # --- execution and evidence ---------------------------------------------
@@ -218,12 +221,12 @@ def test_the_gold_set_is_unreachable(gw, sql):
 
 def test_external_access_cannot_be_switched_back_on(gw):
     """lock_configuration=true, so even a SET that got through would fail."""
-    con = gw._connect()
+    con, watchdog = gw._connect()
     try:
         with pytest.raises(duckdb.Error):
             con.execute("SET enable_external_access=true")
     finally:
-        con.close()
+        gw._close(con, watchdog)
 
 
 def test_lockdown_does_not_break_the_warehouse(gw):
@@ -270,3 +273,93 @@ def test_the_watchdog_does_not_leak_between_queries(gw):
     for _ in range(3):
         decision, record = gw.run_sql("SELECT COUNT(*) AS n FROM fct_orders")
         assert decision.allowed, decision.reason
+
+
+# --- the same gateway, the other engine ----------------------------------
+#
+# One gateway covers DuckDB and SQLite. These assert the policy and the
+# integrity guarantees hold identically on the SQLite backend, because the
+# alternative was a second gateway (evals/sandbox.py) with a second set of
+# these tests that had to be kept in sync by hand.
+
+SPIDER_DB = Path("evals/spider/databases/IPL.sqlite")
+needs_spider = pytest.mark.skipif(
+    not SPIDER_DB.exists(), reason="Spider databases not downloaded"
+)
+
+
+@pytest.fixture
+def sqlite_gw(tmp_path):
+    return Gateway(SPIDER_DB, store=EvidenceStore(tmp_path / "e.jsonl"), timeout=5)
+
+
+@needs_spider
+def test_backend_is_inferred_from_the_extension(sqlite_gw, gw):
+    assert sqlite_gw.backend.name == "sqlite"
+    assert gw.backend.name == "duckdb"
+
+
+@needs_spider
+def test_sqlite_schema_discovery_works(sqlite_gw):
+    tables = sqlite_gw.describe_schema()
+    assert tables
+    assert all({"table", "columns", "row_count"} <= set(t) for t in tables)
+
+
+@needs_spider
+@pytest.mark.parametrize("sql,stage", [
+    ("DROP TABLE Ball_by_Ball", "authorize"),
+    ("ATTACH DATABASE 'x.sqlite' AS y", "authorize"),
+    ("DELETE FROM Ball_by_Ball", "authorize"),
+    ("SELECT * FROM no_such_table", "authorize"),
+    ("SELECT * FROM Ball_by_Ball a, Ball_by_Ball b", "lint"),
+])
+def test_the_same_policy_applies_on_sqlite(sqlite_gw, sql, stage):
+    decision = sqlite_gw.authorize(sql)
+    assert not decision.allowed
+    assert decision.stage == stage
+
+
+@needs_spider
+def test_sqlite_connection_cannot_write_or_reach_other_files(sqlite_gw):
+    """The engine-level guarantees, with authorize() bypassed entirely."""
+    con, watchdog = sqlite_gw._connect()
+    try:
+        with pytest.raises(sqlite3.Error):
+            con.execute("DELETE FROM Ball_by_Ball")
+        with pytest.raises(sqlite3.Error):           # ATTACH reaches the gold answers
+            con.execute("ATTACH DATABASE 'evals/spider/gold/x.jsonl' AS g")
+        with pytest.raises(sqlite3.Error):           # no file-reading function exists
+            con.execute("SELECT readfile('evals/gold/questions.jsonl')")
+    finally:
+        sqlite_gw._close(con, watchdog)
+
+
+@needs_spider
+def test_sqlite_statement_timeout_fires(sqlite_gw):
+    """A cartesian product that gets past lint must still be bounded."""
+    import time
+    sql = (
+        "SELECT COUNT(*) FROM Ball_by_Ball a JOIN Ball_by_Ball b ON 1=1 "
+        "JOIN Ball_by_Ball c ON 1=1 WHERE a.match_id > 0"
+    )
+    started = time.monotonic()
+    decision, record = sqlite_gw.run_sql(sql)
+    elapsed = time.monotonic() - started
+    assert not decision.allowed
+    assert record is None
+    assert elapsed < 20, f"timeout did not fire ({elapsed:.1f}s)"
+
+
+@needs_spider
+def test_sqlite_normal_query_returns_evidence(sqlite_gw):
+    decision, record = sqlite_gw.run_sql("SELECT COUNT(*) AS n FROM Ball_by_Ball")
+    assert decision.allowed
+    assert record.fields["n"] == 134703
+
+
+def test_an_unknown_extension_is_refused_rather_than_guessed(tmp_path):
+    odd = tmp_path / "mystery.bin"
+    odd.write_bytes(b"")
+    with pytest.raises(ValueError, match="cannot infer"):
+        Gateway(odd)

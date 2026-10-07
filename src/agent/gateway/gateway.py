@@ -1,4 +1,4 @@
-"""The only module that may import duckdb or execute SQL.
+"""The only module that may open a database or execute SQL.
 
 The model proposes SQL. This decides. Those are different jobs, and keeping
 them in different modules is what makes the boundary real rather than a rule
@@ -13,32 +13,36 @@ Each stage can refuse, and a refusal is a returned Decision rather than a
 raised exception, because the refusal text is the most useful thing the model
 receives. "unknown table: fct_order" is what lets it fix the query next turn.
 
-Two structural guarantees, both enforced here rather than requested:
+Two structural guarantees, both enforced rather than requested:
 
-  1. The connection is opened read_only=True, so a write is rejected by DuckDB
-     itself whatever SQL arrives.
+  1. The connection cannot write and cannot read other files. How that is done
+     differs per engine and lives in backends.py.
   2. Every executed statement writes an immutable evidence record before its
      rows are returned to anyone.
+
+One gateway covers DuckDB and SQLite. The policy above is dialect-parameterised
+sqlglot, so only the connection, the timeout mechanism, the schema query and
+the interrupt exception differ -- which is all backends.py holds. Before this
+there were two of everything: this and evals/sandbox.py, each with its own
+integrity tests.
 """
 
-import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import duckdb
 import sqlglot
 from sqlglot import expressions as exp
 
 from ..evidence.store import EvidenceRecord, EvidenceStore
 
-DIALECT = "duckdb"
+from . import backends
+
 MAX_ROWS = 1000
 MAX_JOINS = 6
 
-# DuckDB has no statement_timeout, so the bound is a watchdog that calls
-# interrupt(). MAX_ROWS bounds what comes back; it does nothing about how long
-# the engine spends computing it, and an unbounded join on a real warehouse
-# will sit there indefinitely.
+# MAX_ROWS bounds what comes back; it does nothing about how long the engine
+# spends computing it. A cartesian join on a 134k-row table ran for 26 minutes
+# before this existed. The mechanism is per-engine; see backends.py.
 STATEMENT_TIMEOUT = 30.0
 
 
@@ -71,6 +75,7 @@ class Gateway:
         max_rows: int = MAX_ROWS,
         max_joins: int = MAX_JOINS,
         timeout: float = STATEMENT_TIMEOUT,
+        backend: str | None = None,
     ):
         self.db_path = Path(db_path)
         if not self.db_path.exists():
@@ -82,45 +87,25 @@ class Gateway:
         self.max_rows = max_rows
         self.max_joins = max_joins
         self.timeout = timeout
+        # Inferred from the file extension unless named: .duckdb or .sqlite.
+        self.backend = backends.for_path(self.db_path, backend)
         self.allowlist = allowlist if allowlist is not None else self._discover_tables()
 
     # --- connection ------------------------------------------------------
 
-    # Passed to every connection. Each one closes a hole that SQL-text
-    # inspection cannot reliably close.
-    #
-    # enable_external_access=false is the important one. read_only=True stops
-    # WRITES; it does nothing about READS of other files, and DuckDB will
-    # happily do `SELECT * FROM read_json_auto('evals/gold/questions.jsonl')`.
-    # The allowlist does not catch it either, because a table function is not a
-    # table. Verified: before this setting, 7 of 9 file-read attempts reached
-    # the gold answers and the anomaly key.
-    #
-    # Blocklisting read_json_auto, read_csv_auto, read_text, read_blob, glob,
-    # ... would be a validator, and would lose to whatever DuckDB adds next.
-    # This refuses the capability instead of enumerating its spellings.
-    #
-    # lock_configuration=true then prevents SET turning it back on.
-    CONNECT_CONFIG = {
-        "enable_external_access": "false",
-        "lock_configuration": "true",
-    }
+    def _connect(self):
+        """Returns (connection, watchdog). Always close via _close()."""
+        return self.backend.connect(self.db_path, self.timeout)
 
-    def _connect(self) -> duckdb.DuckDBPyConnection:
-        return duckdb.connect(
-            str(self.db_path), read_only=True, config=dict(self.CONNECT_CONFIG)
-        )
+    def _close(self, con, watchdog) -> None:
+        self.backend.close(con, watchdog)
 
     def _discover_tables(self) -> set[str]:
-        con = self._connect()
+        con, watchdog = self._connect()
         try:
-            rows = con.execute(
-                "SELECT table_name FROM information_schema.tables "
-                "WHERE table_schema = 'main'"
-            ).fetchall()
+            return self.backend.table_names(con)
         finally:
-            con.close()
-        return {r[0].lower() for r in rows}
+            self._close(con, watchdog)
 
     def describe_schema(self) -> list[dict]:
         """Tables, columns and row counts.
@@ -129,23 +114,11 @@ class Gateway:
         do: this is the only module holding a connection. The catalog consumes
         what this returns and never opens the file itself.
         """
-        con = self._connect()
+        con, watchdog = self._connect()
         try:
-            cols = con.execute(
-                "SELECT table_name, column_name, data_type "
-                "FROM information_schema.columns WHERE table_schema = 'main' "
-                "ORDER BY table_name, ordinal_position"
-            ).fetchall()
-            tables: dict[str, list[dict]] = {}
-            for table, column, dtype in cols:
-                tables.setdefault(table, []).append({"name": column, "type": dtype})
-            out = []
-            for table, columns in tables.items():
-                n = con.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
-                out.append({"table": table, "columns": columns, "row_count": n})
-            return out
+            return self.backend.describe(con)
         finally:
-            con.close()
+            self._close(con, watchdog)
 
     # --- stages ----------------------------------------------------------
 
@@ -153,7 +126,7 @@ class Gateway:
         """Everything except execution. Pure, so it is cheap to test."""
         # parse
         try:
-            statements = [s for s in sqlglot.parse(sql, dialect=DIALECT) if s]
+            statements = [s for s in sqlglot.parse(sql, dialect=self.backend.dialect) if s]
         except sqlglot.ParseError as exc:
             return _refuse("parse", f"could not parse SQL: {exc}")
         if not statements:
@@ -221,7 +194,7 @@ class Gateway:
         return Decision(
             allowed=True,
             stage="authorized",
-            sql=bounded.sql(dialect=DIALECT),
+            sql=bounded.sql(dialect=self.backend.dialect),
             tables=sorted(set(tables)),
         )
 
@@ -245,30 +218,26 @@ class Gateway:
         if not decision.allowed:
             return decision, None
 
-        con = self._connect()
-        watchdog = None
-        if self.timeout:
-            watchdog = threading.Timer(self.timeout, con.interrupt)
-            watchdog.daemon = True
-            watchdog.start()
+        con, watchdog = self._connect()
         try:
             cur = con.execute(decision.sql)
             columns = [d[0] for d in cur.description] if cur.description else []
-            rows = cur.fetchall()
-        except duckdb.InterruptException:
-            return _refuse(
-                "execute",
-                f"Query aborted after {self.timeout:.0f}s. It is too expensive -- "
-                "add a WHERE clause, a LIMIT, or aggregate instead of scanning.",
-            ), None
-        except duckdb.Error as exc:
-            # Execution errors are refusals too: the model needs the text to
-            # repair the query, and nothing was recorded as evidence.
-            return _refuse("execute", f"{type(exc).__name__}: {exc}"), None
+            rows = [list(r) for r in cur.fetchall()]
+        except Exception as exc:
+            if self.backend.is_interrupt(exc):
+                return _refuse(
+                    "execute",
+                    f"Query aborted after {self.timeout:.0f}s. It is too expensive"
+                    " -- add a WHERE clause, a LIMIT, or aggregate instead of"
+                    " scanning.",
+                ), None
+            if self.backend.is_engine_error(exc):
+                # Execution errors are refusals too: the model needs the text
+                # to repair the query, and nothing was recorded as evidence.
+                return _refuse("execute", f"{type(exc).__name__}: {exc}"), None
+            raise
         finally:
-            if watchdog:
-                watchdog.cancel()
-            con.close()
+            self._close(con, watchdog)
 
         truncated = len(rows) > self.max_rows
         rows = rows[: self.max_rows]
@@ -276,7 +245,7 @@ class Gateway:
         record = self.store.put_query(
             sql=decision.sql,
             columns=columns,
-            rows=[list(r) for r in rows],
+            rows=rows,
             truncated=truncated,
             note=note,
         )
