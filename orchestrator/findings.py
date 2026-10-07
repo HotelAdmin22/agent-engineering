@@ -22,32 +22,24 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-# --- Verdicts ---------------------------------------------------------------
-
-PASS = "PASS"      # evidence ran and showed no defect
-FAIL = "FAIL"      # evidence ran and showed a defect
-NEEDS = "NEEDS"    # evidence could not be gathered -- NOT a pass
-NA = "N/A"         # the check does not apply to this task
-
-VERDICTS = (PASS, FAIL, NEEDS, NA)
-
-
-# --- What a fixed query must produce ----------------------------------------
-
-ZERO_ROWS = "zero_rows"
-NONZERO_ROWS = "nonzero_rows"
-ONE_ROW = "one_row"
-
-EXPECTATIONS = (ZERO_ROWS, NONZERO_ROWS, ONE_ROW)
-
-
-# --- Whether feedback landed ------------------------------------------------
-
-LANDED = "landed"              # re-run evidence now matches expectation
-NOT_LANDED = "not_landed"      # defect still present
-REGRESSED = "regressed"        # passed before, fails now
-UNVERIFIABLE = "unverifiable"  # the evidence query itself failed to run
-FALSE_POSITIVE = "false_positive"  # evidence already passed BEFORE any repair
+# The vocabulary lives in src/agent/verdicts.py. Re-exported here so existing
+# imports keep working; it is defined in exactly one place.
+from agent.verdicts import (  # noqa: E402,F401
+    EXPECTATIONS,
+    FAIL,
+    FALSE_POSITIVE,
+    LANDED,
+    NA,
+    NEEDS,
+    NONZERO_ROWS,
+    NOT_LANDED,
+    ONE_ROW,
+    PASS,
+    REGRESSED,
+    UNVERIFIABLE,
+    VERDICTS,
+    ZERO_ROWS,
+)
 
 
 @dataclass

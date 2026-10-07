@@ -62,8 +62,6 @@ LAYERS = [
      "agent's gateway, and deliberately not merged with it."),
     ("Orchestration", "orchestrator",
      "Worker, verifier, repair, and the check that the repair actually landed."),
-    ("Tool exposure", "mcp_server",
-     "Tools published over MCP, one justification at a time."),
 ]
 
 PIPELINE = [

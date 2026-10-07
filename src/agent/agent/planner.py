@@ -14,8 +14,9 @@ from ..evidence import EvidenceStore
 from ..gateway import Gateway
 from ..report import Rendered, render
 from ..tools import compute_contribution, compute_delta, mix_vs_rate
-from orchestrator.findings import FAIL as LEDGER_FAIL
-from orchestrator.findings import LANDED, NOT_LANDED, REGRESSED, Finding, Ledger
+from orchestrator.findings import Finding, Ledger
+
+from ..verdicts import FAIL, LANDED, NOT_LANDED, REGRESSED
 
 from ..verifier import VerificationResult, check_report
 
@@ -399,7 +400,7 @@ class Planner:
                     Finding(
                         finding_id=f"{self.run_id}:{check}",
                         check=check,
-                        verdict=LEDGER_FAIL,
+                        verdict=FAIL,
                         recommendation="verifier failure on the first answer",
                         evidence_query="SELECT 1",          # re-checked by check_report,
                         expected_after_fix="one_row",       # not by SQL; see note above

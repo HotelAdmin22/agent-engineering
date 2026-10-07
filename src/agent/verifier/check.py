@@ -11,9 +11,14 @@ Two different failures, two different checks:
   whose segments miss the total by 8% is arithmetically impossible, so either
   the query was wrong or the segments are not a partition.
 
-Findings reuse the verdict vocabulary from orchestrator/findings.py: FAIL when
+Results use the shared verdict vocabulary in src/agent/verdicts.py: FAIL when
 evidence shows a defect, NEEDS when the check could not run. A check that could
 not run is not a pass.
+
+Named CheckResult, not Finding. Three different things in this project were
+called Finding -- a verification outcome, a defect with a re-runnable
+assertion, and a proposed tooling change -- and planner.py had to alias one of
+them to import the others.
 """
 
 import re
@@ -22,9 +27,7 @@ from dataclasses import dataclass, field
 from ..evidence import EvidenceStore
 from ..report.render import PLACEHOLDER, placeholders
 
-FAIL = "FAIL"
-PASS = "PASS"
-NEEDS = "NEEDS"
+from ..verdicts import FAIL, NEEDS, PASS  # noqa: F401
 
 # Tokens that are legitimately bare in prose. Dates and ISO months name a
 # period, they are not a computed quantity -- the agent should not have to run
@@ -47,7 +50,7 @@ TOLERANCE = 0.05
 
 
 @dataclass
-class Finding:
+class CheckResult:
     check: str
     verdict: str
     detail: str
@@ -56,10 +59,10 @@ class Finding:
 
 @dataclass
 class VerificationResult:
-    findings: list[Finding] = field(default_factory=list)
+    findings: list[CheckResult] = field(default_factory=list)
 
     @property
-    def failures(self) -> list[Finding]:
+    def failures(self) -> list[CheckResult]:
         return [f for f in self.findings if f.verdict == FAIL]
 
     @property
@@ -88,7 +91,7 @@ def check_report(template: str, store: EvidenceStore) -> VerificationResult:
 
     # 1. every number traces to evidence
     unbacked = find_unbacked_numbers(template)
-    result.findings.append(Finding(
+    result.findings.append(CheckResult(
         check="numbers_backed",
         verdict=FAIL if unbacked else PASS,
         detail=(
@@ -107,14 +110,14 @@ def check_report(template: str, store: EvidenceStore) -> VerificationResult:
         except KeyError as exc:
             unresolved.append(f"{evidence_id}.{name} ({exc.args[0]})")
     if cited:
-        result.findings.append(Finding(
+        result.findings.append(CheckResult(
             check="placeholders_resolve",
             verdict=FAIL if unresolved else PASS,
             detail="; ".join(unresolved) if unresolved
                    else f"{len(cited)} placeholder(s) resolved",
         ))
     else:
-        result.findings.append(Finding(
+        result.findings.append(CheckResult(
             check="placeholders_resolve",
             verdict=NEEDS,
             detail="the report cites no evidence at all",
@@ -130,7 +133,7 @@ def check_report(template: str, store: EvidenceStore) -> VerificationResult:
     return result
 
 
-def _reconcile(record) -> Finding:
+def _reconcile(record) -> CheckResult:
     """Parts must sum to the whole, within rounding."""
     f = record.fields
     segments = f.get("segments")
@@ -138,7 +141,7 @@ def _reconcile(record) -> Finding:
     if segments and "total_delta" in f:
         total = sum(s["delta"] for s in segments)
         gap = abs(total - f["total_delta"])
-        return Finding(
+        return CheckResult(
             check="reconciliation",
             verdict=PASS if gap <= TOLERANCE else FAIL,
             detail=(f"segments sum to {total:,.2f} vs total {f['total_delta']:,.2f} "
@@ -150,7 +153,7 @@ def _reconcile(record) -> Finding:
         parts = (f["total_volume_effect"] + f["total_rate_effect"]
                  + f["total_interaction_effect"])
         gap = abs(parts - f["total_revenue_delta"])
-        return Finding(
+        return CheckResult(
             check="reconciliation",
             verdict=PASS if gap <= TOLERANCE else FAIL,
             detail=(f"volume + rate + interaction = {parts:,.2f} vs revenue delta "
@@ -158,7 +161,7 @@ def _reconcile(record) -> Finding:
             evidence_id=record.id,
         )
 
-    return Finding(
+    return CheckResult(
         check="reconciliation",
         verdict=NEEDS,
         detail="no reconcilable totals on this record",

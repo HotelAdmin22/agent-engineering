@@ -31,7 +31,7 @@ pass^3 0.917, confidently-wrong rate 0.028.
 | 1 Agent Loop | done — `manual_loop/`, by hand, twice (Anthropic and OpenAI) |
 | 2 Workflow | done — orient, plan, act, verify, recover |
 | 3 Prompting | done — environment facts live in the catalog, not the prompt |
-| 4 Tools and MCP | tools done; `mcp_server/` still a placeholder |
+| 4 Tools | done — 7 hand-written schemas, one justification each |
 | 5 Evaluation | done — gold set, seeded anomalies, pass^k |
 | 6 Scope Expansion | in progress — orchestrator, triage sub-agent |
 | 7 Explain the Design | `docs/architecture.html` is generated from the source |

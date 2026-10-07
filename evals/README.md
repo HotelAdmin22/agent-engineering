@@ -6,9 +6,9 @@ Empty on purpose. Phase 5.
 
 | File | Purpose |
 | --- | --- |
-| `dev.json` | Development tasks. Iterated against freely. |
-| `heldout.json` | Held-out tasks. Run rarely. |
-| `runner.py` | Runs the agent over a task set and scores it. |
+| `gold/questions.jsonl` | Warehouse questions, iterated against freely. |
+| `spider/` | Spider 2.0-Lite: 135 tasks, 30 databases, its own scorer. |
+| `runner.py` | Runs the agent over a task set. |
 
 ## Why two sets
 
@@ -17,6 +17,7 @@ it is for. `heldout.json` is the check that the tuning generalized. Looking at
 the held-out set after every change destroys the only property that makes it
 useful, so run it rarely and deliberately.
 
-Both files start as `[]`. Tasks get added when there is an agent to run them
-against, drawn from real failures observed in Phases 0–4 rather than invented
-up front.
+`dev.json` and `heldout.json` were placeholders that stayed `[]` for the whole
+project and were removed. Spider 2.0-Lite is the real task set: 135 tasks over
+30 unfamiliar databases, with an upstream scorer, which is the eval surface a
+12-question warehouse set could never provide.

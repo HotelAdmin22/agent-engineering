@@ -127,7 +127,7 @@ JSON_BLOCK = re.compile(r"```json\s*(.*?)```", re.S | re.I)
 
 
 @dataclass
-class TriageFinding:
+class Proposal:
     signature: str
     occurrences: int
     cls: str
@@ -276,7 +276,7 @@ class TriageTools:
         return {"path": path, "content": resolved.read_text(encoding="utf-8")[:20000]}, False
 
 
-def parse_findings(text: str | None) -> list[TriageFinding]:
+def parse_findings(text: str | None) -> list[Proposal]:
     if not text:
         return []
     blocks = JSON_BLOCK.findall(text)
@@ -290,7 +290,7 @@ def parse_findings(text: str | None) -> list[TriageFinding]:
     out = []
     for raw in payload.get("findings", []):
         paths = [str(p) for p in (raw.get("target_paths") or [])]
-        finding = TriageFinding(
+        proposal = Proposal(
             signature=str(raw.get("signature", "")),
             occurrences=int(raw.get("occurrences") or 0),
             cls=str(raw.get("class", "")),
@@ -303,12 +303,12 @@ def parse_findings(text: str | None) -> list[TriageFinding]:
         # Enforced here, not trusted to the prompt.
         guard = _protected_hit(paths)
         if guard:
-            finding.rejected = f"targets protected path {guard}"
-        elif not finding.assertion.get("kind"):
-            finding.rejected = "no machine-checkable assertion"
+            proposal.rejected = f"targets protected path {guard}"
+        elif not proposal.assertion.get("kind"):
+            proposal.rejected = "no machine-checkable assertion"
         elif not paths:
-            finding.rejected = "no target path"
-        out.append(finding)
+            proposal.rejected = "no target path"
+        out.append(proposal)
     return out
 
 
@@ -330,7 +330,7 @@ def triage(trace=None, client=None, max_steps: int = MAX_STEPS) -> dict:
         trace=trace,
         client=client,
     )
-    findings = parse_findings(result.final_text)
+    proposals = parse_findings(result.final_text)
     return {
         "generated": datetime.now(timezone.utc).isoformat(),
         "runs_scanned": data["runs"],
@@ -339,7 +339,7 @@ def triage(trace=None, client=None, max_steps: int = MAX_STEPS) -> dict:
         "stopped_because": result.stopped_because,
         "usage": result.usage_totals,
         "report": result.final_text,
-        "findings": [asdict(f) for f in findings],
-        "actionable": [asdict(f) for f in findings if f.actionable],
-        "rejected": [asdict(f) for f in findings if not f.actionable],
+        "proposals": [asdict(p) for p in proposals],
+        "actionable": [asdict(p) for p in proposals if p.actionable],
+        "rejected": [asdict(p) for p in proposals if not p.actionable],
     }
