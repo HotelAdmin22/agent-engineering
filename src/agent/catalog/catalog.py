@@ -9,14 +9,24 @@ a vector index would be machinery with no blocked step behind it. The scoring
 below is deliberately unclever, and should be replaced when a question starts
 failing to find the table it needs -- not before.
 
-Metrics are defined here rather than inferred, because "revenue" meaning
+Metrics are declared rather than inferred, because "revenue" meaning
 `SUM(amount) WHERE status = 'completed'` is a business fact. Leaving the model
 to rediscover the status filter every time is how a report quietly reports
 refunded orders as revenue.
+
+But they are declared BESIDE THE DATABASE, in `<db>.catalog.json`, not in this
+file. They are environment knowledge -- true of one warehouse, meaningless
+elsewhere. Hardcoded here, the catalog offered `SUM(amount) FROM fct_orders` on
+an IPL cricket database: a confident pointer to tables that do not exist, which
+is worse than no catalog at all.
+
+A database with no `.catalog.json` beside it gets table cards and nothing else.
 """
 
+import json
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from ..gateway import Gateway
 
@@ -36,54 +46,22 @@ class Metric:
         return f"SELECT {self.expression} AS {self.name} FROM {self.table} {where}".strip()
 
 
-METRICS = [
-    Metric(
-        name="revenue",
-        expression="SUM(amount)",
-        table="fct_orders",
-        filters="status = 'completed'",
-        grain="one row per order",
-        description=(
-            "Completed order value. Cancelled and refunded orders are excluded; "
-            "including them overstates revenue."
-        ),
-    ),
-    Metric(
-        name="units",
-        expression="SUM(quantity)",
-        table="fct_orders",
-        filters="status = 'completed'",
-        grain="one row per order",
-        description="Units sold on completed orders.",
-    ),
-    Metric(
-        name="orders",
-        expression="COUNT(*)",
-        table="fct_orders",
-        filters="status = 'completed'",
-        grain="one row per order",
-        description="Count of completed orders.",
-    ),
-    Metric(
-        name="avg_unit_price",
-        expression="SUM(amount) / NULLIF(SUM(quantity), 0)",
-        table="fct_orders",
-        filters="status = 'completed'",
-        grain="one row per order",
-        description=(
-            "Realised price per unit. Revenue divided by units -- not AVG(unit_price), "
-            "which weights a one-unit order the same as a forty-unit one."
-        ),
-    ),
-]
-
-# Foreign keys are declared, not guessed. A join path inferred from matching
-# column names is right until two tables share a column name by coincidence,
-# and then it is silently wrong.
-JOINS = [
-    ("fct_orders", "dim_customer", "customer_id"),
-    ("fct_orders", "dim_product", "product_id"),
-]
+def load_config(db_path: Path) -> dict:
+    """Read `<db>.catalog.json` beside the database. Absent is fine."""
+    config = Path(db_path).with_suffix(".catalog.json")
+    if not config.exists():
+        return {"metrics": [], "joins": []}
+    try:
+        data = json.loads(config.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{config} is not valid JSON: {exc}") from exc
+    return {
+        "metrics": [
+            Metric(**{k: v for k, v in m.items() if not k.startswith("_")})
+            for m in data.get("metrics", [])
+        ],
+        "joins": [tuple(j) for j in data.get("joins", [])],
+    }
 
 
 @dataclass
@@ -105,10 +83,17 @@ def _tokens(text: str) -> list[str]:
 class Catalog:
     """Built once from the gateway's schema, then queried in memory."""
 
-    def __init__(self, gateway: Gateway):
+    def __init__(self, gateway: Gateway, config: dict | None = None):
         self.gateway = gateway
         self.cards: list[Card] = []
         self._schema = {t["table"]: t for t in gateway.describe_schema()}
+        # Case-insensitive lookup. Spider's tables are lowercase on disk but a
+        # question says "Ball_by_Ball", and the model writes what the question
+        # says.
+        self._by_lower = {name.lower(): name for name in self._schema}
+        loaded = config if config is not None else load_config(gateway.db_path)
+        self.metrics: list[Metric] = loaded.get("metrics", [])
+        self.joins: list[tuple] = loaded.get("joins", [])
         self._build()
 
     def _build(self) -> None:
@@ -125,7 +110,7 @@ class Catalog:
                 keywords=columns + [table.replace("fct_", "").replace("dim_", "")],
             ))
 
-        for metric in METRICS:
+        for metric in self.metrics:
             self.cards.append(Card(
                 name=metric.name,
                 kind="metric",
@@ -168,25 +153,30 @@ class Catalog:
         ]
 
     def describe_table(self, name: str) -> dict:
-        info = self._schema.get(name)
+        info = self._schema.get(name) or self._schema.get(
+            self._by_lower.get(name.lower(), "")
+        )
         if info is None:
             return {
                 "error": f"no such table: {name}",
                 "available": sorted(self._schema),
             }
+        name = info["table"]
         return {
             "table": name,
             "row_count": info["row_count"],
             "columns": info["columns"],
             "joins": [
                 {"to": b if a == name else a, "on": key}
-                for a, b, key in JOINS if name in (a, b)
+                for a, b, key in self.joins if name in (a, b)
             ],
         }
 
     def get_join_path(self, left: str, right: str) -> dict:
-        for a, b, key in JOINS:
-            if {a, b} == {left, right}:
+        left = self._by_lower.get(left.lower(), left)
+        right = self._by_lower.get(right.lower(), right)
+        for a, b, key in self.joins:
+            if {a.lower(), b.lower()} == {left.lower(), right.lower()}:
                 return {
                     "from": left,
                     "to": right,
@@ -195,5 +185,5 @@ class Catalog:
                 }
         return {
             "error": f"no declared join between {left} and {right}",
-            "known": [f"{a} <-> {b} on {k}" for a, b, k in JOINS],
+            "known": [f"{a} <-> {b} on {k}" for a, b, k in self.joins],
         }

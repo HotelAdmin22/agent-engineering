@@ -1,3 +1,3 @@
-from .catalog import Card, Catalog, Metric, METRICS
+from .catalog import Card, Catalog, Metric, load_config
 
-__all__ = ["Card", "Catalog", "Metric", "METRICS"]
+__all__ = ["Card", "Catalog", "Metric", "load_config"]

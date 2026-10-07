@@ -1,0 +1,52 @@
+{
+  "_comment": [
+    "Environment knowledge for data/warehouse.duckdb.",
+    "",
+    "Metrics and join keys are facts about THIS database, not instructions about",
+    "how to think, so they live beside the database rather than in the catalog's",
+    "source. A catalog that hardcodes `fct_orders` offers revenue metrics on a",
+    "cricket database, which is worse than offering none.",
+    "",
+    "A database with no .catalog.json next to it simply gets table cards."
+  ],
+
+  "metrics": [
+    {
+      "name": "revenue",
+      "expression": "SUM(amount)",
+      "table": "fct_orders",
+      "filters": "status = 'completed'",
+      "grain": "one row per order",
+      "description": "Completed order value. Cancelled and refunded orders are excluded; including them overstates revenue."
+    },
+    {
+      "name": "units",
+      "expression": "SUM(quantity)",
+      "table": "fct_orders",
+      "filters": "status = 'completed'",
+      "grain": "one row per order",
+      "description": "Units sold on completed orders."
+    },
+    {
+      "name": "orders",
+      "expression": "COUNT(*)",
+      "table": "fct_orders",
+      "filters": "status = 'completed'",
+      "grain": "one row per order",
+      "description": "Count of completed orders."
+    },
+    {
+      "name": "avg_unit_price",
+      "expression": "SUM(amount) / NULLIF(SUM(quantity), 0)",
+      "table": "fct_orders",
+      "filters": "status = 'completed'",
+      "grain": "one row per order",
+      "description": "Realised price per unit. Revenue divided by units -- not AVG(unit_price), which weights a one-unit order the same as a forty-unit one."
+    }
+  ],
+
+  "joins": [
+    ["fct_orders", "dim_customer", "customer_id"],
+    ["fct_orders", "dim_product", "product_id"]
+  ]
+}

@@ -305,3 +305,78 @@ def test_spider_sandbox_normal_query_unaffected(tmp_path):
     )
     assert not is_error
     assert "3" in out
+
+
+# --- the catalog carries no environment knowledge of its own -------------
+#
+# METRICS and JOINS used to be module constants describing the warehouse. On a
+# Spider cricket database the catalog then advertised
+# `SUM(amount) FROM fct_orders` -- a confident pointer to tables that do not
+# exist, which is worse than no catalog.
+
+def test_a_database_without_a_config_gets_no_metrics(tmp_path):
+    import sqlite3
+    from agent.catalog import Catalog
+    from agent.gateway import Gateway
+
+    db = tmp_path / "plain.sqlite"
+    con = sqlite3.connect(db)
+    con.executescript("CREATE TABLE t(a INT); INSERT INTO t VALUES (1);")
+    con.commit(); con.close()
+
+    catalog = Catalog(Gateway(db))
+    assert catalog.metrics == []
+    assert catalog.joins == []
+    assert [c.kind for c in catalog.cards] == ["table"]
+
+
+def test_a_config_beside_the_database_is_loaded(tmp_path):
+    import json, sqlite3
+    from agent.catalog import Catalog
+    from agent.gateway import Gateway
+
+    db = tmp_path / "shop.sqlite"
+    con = sqlite3.connect(db)
+    con.executescript("CREATE TABLE sales(amount REAL); INSERT INTO sales VALUES (5);")
+    con.commit(); con.close()
+    (tmp_path / "shop.catalog.json").write_text(json.dumps({
+        "metrics": [{"name": "total", "expression": "SUM(amount)", "table": "sales",
+                     "filters": "", "grain": "one row per sale",
+                     "description": "Total sales."}],
+        "joins": [["sales", "sales", "amount"]],
+    }), encoding="utf-8")
+
+    catalog = Catalog(Gateway(db))
+    assert [m.name for m in catalog.metrics] == ["total"]
+    assert catalog.joins == [("sales", "sales", "amount")]
+
+
+def test_table_lookup_is_case_insensitive(tmp_path):
+    import sqlite3
+    from agent.catalog import Catalog
+    from agent.gateway import Gateway
+
+    db = tmp_path / "c.sqlite"
+    con = sqlite3.connect(db)
+    con.executescript("CREATE TABLE ball_by_ball(a INT);")
+    con.commit(); con.close()
+
+    catalog = Catalog(Gateway(db))
+    for spelling in ("ball_by_ball", "Ball_by_Ball", "BALL_BY_BALL"):
+        assert catalog.describe_table(spelling)["table"] == "ball_by_ball"
+    assert "error" in catalog.describe_table("nope")
+
+
+def test_malformed_config_is_an_error_not_a_silent_empty(tmp_path):
+    import sqlite3
+    from agent.catalog import Catalog
+    from agent.gateway import Gateway
+
+    db = tmp_path / "bad.sqlite"
+    con = sqlite3.connect(db)
+    con.executescript("CREATE TABLE t(a INT);")
+    con.commit(); con.close()
+    (tmp_path / "bad.catalog.json").write_text("{not json", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="not valid JSON"):
+        Catalog(Gateway(db))
