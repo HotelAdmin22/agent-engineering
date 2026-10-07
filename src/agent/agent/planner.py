@@ -17,44 +17,13 @@ from ..tools import compute_contribution, compute_delta, mix_vs_rate
 from orchestrator.findings import Finding, Ledger
 
 from ..verdicts import FAIL, LANDED, NOT_LANDED, REGRESSED
+from .modes import MODES, extract_sql, verify_sql_answer
 
 from ..verifier import VerificationResult, check_report
 
-MAX_STEPS = 12
+MAX_STEPS = 15
 MAX_TOKENS = 120_000
 PREVIEW_ROWS = 10
-
-SYSTEM = """You are a data analyst answering a question about a DuckDB warehouse.
-
-## How to work
-
-1. Call `search_catalog` first. It knows the tables and the metric definitions,
-   including which filters a metric requires.
-2. Use `describe_table` and `get_join_path` before writing a join.
-3. Run SQL with `run_sql`. You never get a database connection; every query is
-   authorized first and may be refused. A refusal explains itself -- read it and
-   repair the query.
-4. For any comparison between two periods, run one query per period and then use
-   `compute_delta`, `compute_contribution` or `mix_vs_rate`. Do not subtract
-   numbers yourself.
-
-## The one rule that matters
-
-**You must never write a digit that you computed or read off a result.**
-
-Every number in your final answer must be a placeholder of the form
-`{{evidence_id.field}}` -- for example `{{e7.delta_pct}}`. The placeholders are
-filled in from the evidence store after you finish. A number you type yourself
-is rejected by the verifier and the answer is thrown away.
-
-Dates and period names ("2026-09", "Q3") may be written normally.
-
-## Finishing
-
-End with your analysis as prose containing placeholders. Say what changed, and
-why, and name the mechanism -- a volume effect and a rate effect are different
-answers and the tools can tell them apart."""
-
 
 def _tool_schemas() -> list[dict]:
     """Anthropic-shaped: manual_loop.loop_openai converts to the Responses API."""
@@ -176,6 +145,7 @@ class AnswerRun:
     run_id: str
     template: str | None = None
     rendered: Rendered | None = None
+    final_sql: str | None = None
     verification: VerificationResult | None = None
     repaired: bool = False
     landings: list[dict] = field(default_factory=list)
@@ -186,13 +156,16 @@ class AnswerRun:
 
     @property
     def ok(self) -> bool:
-        return bool(
-            self.verification and self.verification.ok
-            and self.rendered and self.rendered.ok
-        )
+        if not (self.verification and self.verification.ok):
+            return False
+        if self.final_sql is not None:      # sql mode: nothing to render
+            return True
+        return bool(self.rendered and self.rendered.ok)
 
     @property
     def answer(self) -> str:
+        if self.final_sql is not None:
+            return self.final_sql
         return self.rendered.text if self.rendered else "(no answer produced)"
 
 
@@ -204,13 +177,18 @@ class Planner:
         warehouse: Path | str = "data/warehouse.duckdb",
         run_dir: Path | str | None = None,
         run_id: str | None = None,
+        mode: str = "prose",
+        gateway_timeout: float | None = 30.0,
     ):
+        if mode not in MODES:
+            raise ValueError(f"unknown mode {mode!r}: {sorted(MODES)}")
+        self.mode = MODES[mode]
         self.run_id = run_id or datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
         self.run_dir = Path(run_dir) if run_dir else Path("runs") / self.run_id
         self.run_dir.mkdir(parents=True, exist_ok=True)
 
         self.store = EvidenceStore(self.run_dir / "evidence.jsonl")
-        self.gateway = Gateway(warehouse, store=self.store)
+        self.gateway = Gateway(warehouse, store=self.store, timeout=gateway_timeout)
         self.catalog = Catalog(self.gateway)
         self.audit = AuditLog(self.run_dir / "audit.jsonl", run=self.run_id)
         # Same ledger type the orchestrator uses, so repair outcomes across
@@ -295,15 +273,13 @@ class Planner:
         try:
             response = client.responses.create(
                 model=loop_openai.MODEL,
-                instructions=SYSTEM,
+                instructions=self.mode.system,
                 input=list(items) + [{
                     "role": "user",
                     "content": (
                         "Your step budget is spent. Write your final answer now "
-                        "from the evidence you already have. Do not call any more "
-                        "tools. Every number must still be a "
-                        "{{evidence_id.field}} placeholder. If the evidence is "
-                        "incomplete, say so and answer what it does support."
+                        "from the evidence you already have. Do not call any "
+                        f"more tools. {self.mode.forced_closing}"
                     ),
                 }],
             )
@@ -311,6 +287,12 @@ class Planner:
             self.audit.event("force_answer_failed", error=str(exc))
             return None
         return response.output_text
+
+    def _verify(self, template: str | None) -> VerificationResult:
+        """Deterministic, and different per mode. No model in either branch."""
+        if self.mode.name == "sql":
+            return verify_sql_answer(template, self.store)
+        return check_report(template or "", self.store)
 
     # --- the run ---------------------------------------------------------
 
@@ -330,7 +312,7 @@ class Planner:
             prompt=question,
             tools=_tool_schemas(),
             execute=self.execute,
-            system=SYSTEM,
+            system=self.mode.system,
             max_iterations=max_steps,
             max_total_tokens=max_tokens,
             trace=trace,
@@ -348,7 +330,7 @@ class Planner:
             run.template = self._force_answer(result.messages, client)
             run.stopped_because += "+forced_answer"
 
-        run.verification = check_report(run.template or "", self.store)
+        run.verification = self._verify(run.template)
 
         # One repair attempt, recorded the way orchestrator/ records them: which
         # checks were failing before, which are failing after, and therefore
@@ -373,7 +355,7 @@ class Planner:
                 ),
                 tools=_tool_schemas(),
                 execute=self.execute,
-                system=SYSTEM,
+                system=self.mode.system,
                 max_iterations=max_steps,
                 max_total_tokens=max_tokens,
                 trace=trace,
@@ -382,7 +364,7 @@ class Planner:
             run.template = repaired.final_text
             run.steps += repaired.num_turns
             run.repaired = True
-            run.verification = check_report(run.template or "", self.store)
+            run.verification = self._verify(run.template)
 
             after = {f.check for f in run.verification.failures}
             for check in sorted(before | after):
@@ -410,8 +392,16 @@ class Planner:
                 )
             self.audit.event("repair_outcome", landings=run.landings)
 
-        run.rendered = render(run.template or "", self.store)
-        run.evidence_ids = run.rendered.used
+        if self.mode.name == "sql":
+            # Nothing to render: the answer IS the query. evidence_ids names the
+            # record that proves it was executed.
+            run.final_sql = extract_sql(run.template)
+            run.evidence_ids = [
+                f.evidence_id for f in run.verification.findings if f.evidence_id
+            ]
+        else:
+            run.rendered = render(run.template or "", self.store)
+            run.evidence_ids = run.rendered.used
         self.audit.event(
             "answer",
             ok=run.ok,
@@ -425,6 +415,8 @@ class Planner:
                     "question": question,
                     "template": run.template,
                     "answer": run.answer,
+                    "mode": self.mode.name,
+                    "final_sql": run.final_sql,
                     "ok": run.ok,
                     "steps": run.steps,
                     "usage": run.usage,

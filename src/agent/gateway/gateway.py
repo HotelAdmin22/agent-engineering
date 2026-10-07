@@ -89,23 +89,31 @@ class Gateway:
         self.timeout = timeout
         # Inferred from the file extension unless named: .duckdb or .sqlite.
         self.backend = backends.for_path(self.db_path, backend)
+        self._con = None
         self.allowlist = allowlist if allowlist is not None else self._discover_tables()
 
     # --- connection ------------------------------------------------------
 
-    def _connect(self):
-        """Returns (connection, watchdog). Always close via _close()."""
-        return self.backend.connect(self.db_path, self.timeout)
+    def _conn(self):
+        """One connection for the gateway's lifetime, opened on first use.
 
-    def _close(self, con, watchdog) -> None:
-        self.backend.close(con, watchdog)
+        It used to be one per query, which meant one watchdog thread per query
+        on a handle that was about to close. A timer firing a moment late
+        called interrupt() on a dead connection and crashed the interpreter.
+        A connection that outlives every timer removes that race entirely, and
+        reconnecting per query was never worth anything.
+        """
+        if self._con is None:
+            self._con = self.backend.connect(self.db_path)
+        return self._con
+
+    def close(self) -> None:
+        if self._con is not None:
+            self.backend.close(self._con)
+            self._con = None
 
     def _discover_tables(self) -> set[str]:
-        con, watchdog = self._connect()
-        try:
-            return self.backend.table_names(con)
-        finally:
-            self._close(con, watchdog)
+        return self.backend.table_names(self._conn())
 
     def describe_schema(self) -> list[dict]:
         """Tables, columns and row counts.
@@ -114,11 +122,7 @@ class Gateway:
         do: this is the only module holding a connection. The catalog consumes
         what this returns and never opens the file itself.
         """
-        con, watchdog = self._connect()
-        try:
-            return self.backend.describe(con)
-        finally:
-            self._close(con, watchdog)
+        return self.backend.describe(self._conn())
 
     # --- stages ----------------------------------------------------------
 
@@ -218,7 +222,8 @@ class Gateway:
         if not decision.allowed:
             return decision, None
 
-        con, watchdog = self._connect()
+        con = self._conn()
+        watchdog = self.backend.watch(con, self.timeout)
         try:
             cur = con.execute(decision.sql)
             columns = [d[0] for d in cur.description] if cur.description else []
@@ -237,7 +242,8 @@ class Gateway:
                 return _refuse("execute", f"{type(exc).__name__}: {exc}"), None
             raise
         finally:
-            self._close(con, watchdog)
+            if watchdog:
+                watchdog.cancel()
 
         truncated = len(rows) > self.max_rows
         rows = rows[: self.max_rows]

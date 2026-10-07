@@ -27,42 +27,78 @@ third vector.
 """
 
 import sqlite3
-import time
+import threading
 from pathlib import Path
 from typing import Any
 
-import duckdb
+
+class _Watchdog:
+    """A timer that cannot interrupt a connection after its query is done.
+
+    `Timer.cancel()` only helps if the timer has not already started running.
+    With a connection created per query, a timer firing a moment after its
+    connection closed called interrupt() on a dead handle -- which crashes the
+    interpreter rather than raising. The flag closes that race, and the
+    connection now outlives every timer anyway.
+    """
+
+    def __init__(self, con, timeout: float):
+        self._done = False
+        self._timer = threading.Timer(timeout, self._fire)
+        self._timer.daemon = True
+        self._con = con
+        self._timer.start()
+
+    def _fire(self) -> None:
+        if self._done:
+            return
+        try:
+            self._con.interrupt()
+        except Exception:
+            pass
+
+    def cancel(self) -> None:
+        self._done = True
+        self._timer.cancel()
 
 
 class DuckDBBackend:
+    """DuckDB is imported lazily, inside the methods that need it.
+
+    A Spider run is pure SQLite and has no business loading DuckDB's native
+    extension, which starts its own threads. Importing it at module scope meant
+    every SQLite run paid for that, and the configuration that ran 135 Spider
+    tasks without trouble was precisely the one that never imported it.
+    """
+
     name = "duckdb"
     dialect = "duckdb"
 
     # enable_external_access=false is the important one; see the module docstring.
     CONFIG = {"enable_external_access": "false", "lock_configuration": "true"}
 
-    def connect(self, path: Path, timeout: float | None):
+    def connect(self, path: Path):
+        import duckdb
+
         con = duckdb.connect(str(path), read_only=True, config=dict(self.CONFIG))
         # DuckDB has no statement_timeout, so the bound is a watchdog thread
         # calling interrupt(). Returned so the caller can cancel it.
-        watchdog = None
-        if timeout:
-            import threading
+        return con
 
-            watchdog = threading.Timer(timeout, con.interrupt)
-            watchdog.daemon = True
-            watchdog.start()
-        return con, watchdog
+    def watch(self, con, timeout: float | None):
+        return _Watchdog(con, timeout) if timeout else None
 
-    def close(self, con, watchdog) -> None:
-        if watchdog:
-            watchdog.cancel()
+    def close(self, con) -> None:
         con.close()
 
     def is_interrupt(self, exc: Exception) -> bool:
+        import duckdb
+
         return isinstance(exc, duckdb.InterruptException)
 
     def is_engine_error(self, exc: Exception) -> bool:
+        import duckdb
+
         return isinstance(exc, duckdb.Error)
 
     def describe(self, con) -> list[dict]:
@@ -85,7 +121,7 @@ class SQLiteBackend:
     name = "sqlite"
     dialect = "sqlite"
 
-    def connect(self, path: Path, timeout: float | None):
+    def connect(self, path: Path):
         uri = f"file:{Path(path).as_posix()}?mode=ro"
         con = sqlite3.connect(uri, uri=True)
         con.row_factory = sqlite3.Row
@@ -100,16 +136,31 @@ class SQLiteBackend:
 
         con.set_authorizer(authorizer)
 
-        # sqlite3 has no statement_timeout pragma. A progress handler returning
-        # non-zero is the only way to abort a running statement.
-        if timeout:
-            deadline = time.monotonic() + timeout
-            con.set_progress_handler(
-                lambda: 1 if time.monotonic() > deadline else 0, 10_000
-            )
-        return con, None
+        # A watchdog thread calling interrupt(), the same mechanism DuckDB uses.
+        #
+        # The first version used set_progress_handler, which is the documented
+        # way to abort a sqlite3 statement -- but it registers a Python callable
+        # that SQLite invokes from C every N opcodes, and that reproducibly
+        # crashed the interpreter when a connection was collected while a
+        # request was in flight:
+        #
+        #   PyEval_SaveThread: the function must be called with the GIL held
+        #
+        # Verified by disabling the timeout: the crash went away. interrupt() is
+        # explicitly safe to call from another thread and needs no callback.
+        return con
 
-    def close(self, con, watchdog) -> None:
+    def watch(self, con, timeout: float | None):
+        return _Watchdog(con, timeout) if timeout else None
+
+    def close(self, con) -> None:
+        # Clear the authorizer before closing: it is a Python callable SQLite
+        # invokes from C, and leaving one registered on a connection being torn
+        # down is a way to get an interpreter crash rather than an exception.
+        try:
+            con.set_authorizer(None)
+        except sqlite3.Error:
+            pass
         con.close()
 
     def is_interrupt(self, exc: Exception) -> bool:

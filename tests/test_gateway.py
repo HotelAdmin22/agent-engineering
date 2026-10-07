@@ -126,7 +126,7 @@ def test_connection_is_read_only_whatever_sql_arrives(gw):
     If every check in authorize() were deleted, the connection itself would
     still refuse to write.
     """
-    con, watchdog = gw._connect()
+    con = gw._conn()
     try:
         for sql in ("DELETE FROM fct_orders",
                     "UPDATE fct_orders SET amount = 0",
@@ -135,7 +135,7 @@ def test_connection_is_read_only_whatever_sql_arrives(gw):
             with pytest.raises(duckdb.Error):
                 con.execute(sql)
     finally:
-        gw._close(con, watchdog)
+        pass
 
 
 # --- execution and evidence ---------------------------------------------
@@ -221,12 +221,12 @@ def test_the_gold_set_is_unreachable(gw, sql):
 
 def test_external_access_cannot_be_switched_back_on(gw):
     """lock_configuration=true, so even a SET that got through would fail."""
-    con, watchdog = gw._connect()
+    con = gw._conn()
     try:
         with pytest.raises(duckdb.Error):
             con.execute("SET enable_external_access=true")
     finally:
-        gw._close(con, watchdog)
+        pass
 
 
 def test_lockdown_does_not_break_the_warehouse(gw):
@@ -323,7 +323,7 @@ def test_the_same_policy_applies_on_sqlite(sqlite_gw, sql, stage):
 @needs_spider
 def test_sqlite_connection_cannot_write_or_reach_other_files(sqlite_gw):
     """The engine-level guarantees, with authorize() bypassed entirely."""
-    con, watchdog = sqlite_gw._connect()
+    con = sqlite_gw._conn()
     try:
         with pytest.raises(sqlite3.Error):
             con.execute("DELETE FROM Ball_by_Ball")
@@ -332,7 +332,7 @@ def test_sqlite_connection_cannot_write_or_reach_other_files(sqlite_gw):
         with pytest.raises(sqlite3.Error):           # no file-reading function exists
             con.execute("SELECT readfile('evals/gold/questions.jsonl')")
     finally:
-        sqlite_gw._close(con, watchdog)
+        pass
 
 
 @needs_spider

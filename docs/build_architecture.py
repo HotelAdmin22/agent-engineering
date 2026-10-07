@@ -57,11 +57,11 @@ LAYERS = [
     ("The loop", "manual_loop",
      "One request, the tools it asked for, repeat. Written by hand twice -- once per "
      "provider -- so the shape of each API stays visible."),
-    ("Benchmark sandbox", "evals",
-     "The Spider harness and its read-only SQLite surface. Separate from the data "
-     "agent's gateway, and deliberately not merged with it."),
-    ("Orchestration", "orchestrator",
-     "Worker, verifier, repair, and the check that the repair actually landed."),
+    ("Benchmark", "evals",
+     "Spider 2.0-Lite and the gold warehouse set, both run through the same agent."),
+    ("Improvement", "orchestrator",
+     "Failure collection, the triage analyst that proposes fixes, and the verdict "
+     "ledger that records whether a repair landed."),
 ]
 
 PIPELINE = [
