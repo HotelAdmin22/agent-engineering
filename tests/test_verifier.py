@@ -338,3 +338,63 @@ def test_malformed_config_is_an_error_not_a_silent_empty(tmp_path):
 
     with pytest.raises(ValueError, match="not valid JSON"):
         Catalog(Gateway(db))
+
+
+# --- sql mode: "did you actually run this?" ------------------------------
+#
+# The first version compared SQL as text and scored 0/15 on a real sweep. The
+# gateway re-renders through sqlglot before executing, so a model writing
+# `FROM orders o` is stored as `FROM orders AS o` -- same query, different
+# string. Re-scored with parse-tree comparison the same sweep was 9/15.
+
+from agent.agent.modes import extract_sql, verify_sql_answer
+
+
+def _store_with(sql: str) -> EvidenceStore:
+    store = EvidenceStore()
+    store.put_query(sql=sql, columns=["n"], rows=[[1]])
+    return store
+
+
+def test_aliasing_differences_do_not_break_the_match():
+    """What the model wrote vs what sqlglot stored."""
+    store = _store_with("SELECT COUNT(*) AS n FROM orders AS o JOIN items AS i ON o.id = i.id")
+    answer = "```sql\nSELECT COUNT(*) AS n FROM orders o JOIN items i ON o.id = i.id\n```"
+    result = verify_sql_answer(answer, store, "sqlite")
+    assert result.ok, [f.detail for f in result.findings]
+
+
+def test_an_appended_limit_does_not_break_the_match():
+    """The gateway adds the LIMIT, not the model."""
+    store = _store_with("SELECT a FROM t LIMIT 1001")
+    result = verify_sql_answer("```sql\nSELECT a FROM t\n```", store, "sqlite")
+    assert result.ok, [f.detail for f in result.findings]
+
+
+def test_whitespace_and_case_do_not_break_the_match():
+    store = _store_with("SELECT a FROM t WHERE b = 1")
+    answer = "```sql\nselect   a\n  from t\n where b = 1\n```"
+    assert verify_sql_answer(answer, store, "sqlite").ok
+
+
+def test_a_query_that_was_never_run_is_caught():
+    """The check's whole purpose: a different query must not match."""
+    store = _store_with("SELECT a FROM t WHERE b = 1")
+    result = verify_sql_answer("```sql\nSELECT a FROM t WHERE b = 2\n```", store, "sqlite")
+    assert not result.ok
+    assert any(f.check == "sql_was_executed" for f in result.failures)
+
+
+def test_no_sql_block_fails_early():
+    result = verify_sql_answer("I could not work it out.", EvidenceStore(), "sqlite")
+    assert not result.ok
+    assert result.findings[0].check == "sql_produced"
+
+
+def test_the_last_block_wins():
+    assert extract_sql("```sql\nSELECT 1\n```\ntext\n```sql\nSELECT 2\n```") == "SELECT 2"
+
+
+def test_unparseable_sql_falls_back_rather_than_crashing():
+    store = _store_with("this is not sql at all")
+    assert verify_sql_answer("```sql\nthis is not sql at all\n```", store, "sqlite").ok

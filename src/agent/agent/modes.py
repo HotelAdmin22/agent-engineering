@@ -21,6 +21,8 @@ catches a typed digit.
 
 import hashlib
 import re
+
+import sqlglot
 from dataclasses import dataclass
 
 from ..verdicts import FAIL, NEEDS, PASS
@@ -29,18 +31,36 @@ from ..verifier import CheckResult, VerificationResult
 SQL_BLOCK = re.compile(r"```sql\s*(.*?)```", re.S | re.I)
 
 
-def _normalise(sql: str) -> str:
-    """Whitespace-insensitive identity for a statement.
+def _canonical(sql: str, dialect: str = "sqlite") -> str:
+    """A parsed, canonical form of a statement -- not its text.
 
-    The gateway rewrites SQL before executing it (a LIMIT is appended), so the
-    text the model wrote and the text that ran differ. Comparing normalised
-    prefixes is what lets "did you run this?" be answerable at all.
+    Text comparison does not work here and the first version of this check
+    scored 0/15 because of it. The gateway re-renders SQL through sqlglot
+    before executing, so a model writing
+
+        FROM orders o JOIN order_items oi
+
+    is stored as
+
+        FROM orders AS o JOIN order_items AS oi
+
+    Identical query, different string. Comparing parse trees sees through
+    aliasing, quoting, whitespace and keyword case. The appended LIMIT is
+    dropped before comparing, since the gateway adds it, not the model.
     """
-    return " ".join(sql.strip().rstrip(";").split()).lower()
+    try:
+        tree = sqlglot.parse_one(sql, dialect=dialect)
+    except Exception:
+        return " ".join(sql.strip().rstrip(";").split()).lower()
+    if tree is None:
+        return ""
+    tree = tree.copy()
+    tree.set("limit", None)
+    return tree.sql(dialect=dialect, normalize=True, comments=False)
 
 
-def _hash(sql: str) -> str:
-    return hashlib.sha256(_normalise(sql).encode("utf-8")).hexdigest()[:16]
+def _hash(sql: str, dialect: str = "sqlite") -> str:
+    return hashlib.sha256(_canonical(sql, dialect).encode("utf-8")).hexdigest()[:16]
 
 
 @dataclass
@@ -139,7 +159,9 @@ def extract_sql(text: str | None) -> str | None:
     return blocks[-1].strip() if blocks else None
 
 
-def verify_sql_answer(final_text: str | None, store) -> VerificationResult:
+def verify_sql_answer(
+    final_text: str | None, store, dialect: str = "sqlite"
+) -> VerificationResult:
     """Deterministic checks on a SQL-mode answer. No model involved."""
     result = VerificationResult()
     sql = extract_sql(final_text)
@@ -154,20 +176,12 @@ def verify_sql_answer(final_text: str | None, store) -> VerificationResult:
         return result
 
     # Was this query actually executed? Compare against what the gateway ran.
-    executed = {
-        _hash(record.sql): record
-        for record in (store.get(i) for i in store.ids())
-        if record is not None and record.sql
-    }
-    target = _hash(sql)
-    match = executed.get(target)
-    if match is None:
-        # The gateway appends a LIMIT, so also accept a prefix match.
-        normalised = _normalise(sql)
-        for record in (store.get(i) for i in store.ids()):
-            if record and record.sql and _normalise(record.sql).startswith(normalised):
-                match = record
-                break
+    target = _hash(sql, dialect)
+    match = None
+    for record in (store.get(i) for i in store.ids()):
+        if record is not None and record.sql and _hash(record.sql, dialect) == target:
+            match = record
+            break
 
     result.findings.append(CheckResult(
         check="sql_was_executed",

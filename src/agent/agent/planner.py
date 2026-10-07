@@ -291,7 +291,9 @@ class Planner:
     def _verify(self, template: str | None) -> VerificationResult:
         """Deterministic, and different per mode. No model in either branch."""
         if self.mode.name == "sql":
-            return verify_sql_answer(template, self.store)
+            return verify_sql_answer(
+                template, self.store, self.gateway.backend.dialect
+            )
         return check_report(template or "", self.store)
 
     # --- the run ---------------------------------------------------------
