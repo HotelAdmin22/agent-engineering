@@ -80,7 +80,15 @@ def fetch_scorer() -> tuple[int, int]:
         if data:
             save(data, HERE / "evaluation_suite" / name)
             ok += 1
-    return ok, len(names)
+
+    # evaluate.py reads this from the suite's PARENT directory for task
+    # metadata. All 547 tasks, not just the 135 local ones -- it indexes into
+    # it by instance_id.
+    metadata = get(f"{RAW}/spider2-lite.jsonl")
+    if metadata:
+        save(metadata, HERE / "spider2-lite.jsonl")
+        ok += 1
+    return ok, len(names) + 1
 
 
 def fetch_gold_results(rows: list[dict]) -> tuple[int, int]:

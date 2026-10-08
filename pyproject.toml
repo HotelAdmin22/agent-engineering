@@ -17,6 +17,10 @@ dependencies = [
 dev = [
     "pytest",
     "anyio",
+    # Spider's own evaluate.py compares result tables with pandas. A scoring
+    # dependency, not an agent one -- the container does not score.
+    "pandas",
+    "tqdm",
 ]
 
 [build-system]

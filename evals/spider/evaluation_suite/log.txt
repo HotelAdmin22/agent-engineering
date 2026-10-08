@@ -1,0 +1,6 @@
+Evaluating Exec Results:   0%|          | 0/9 [00:00<?, ?it/s]Evaluating Exec Results: 100%|##########| 9/9 [00:00<00:00, 260.46it/s]
+{'local003': 0, 'local007': 1, 'local008': 1, 'local009': 1, 'local010': 0, 'local015': 1, 'local017': 1, 'local020': 0, 'local026': 0}
+Final score: 0.5555555555555556, Correct examples: 5, Total examples: 9
+Real score: 0.009140767824497258, Correct examples: 5, Total examples: 547
+Correct IDs saved to: C:\Users\l\agent-engineering\runs\spider-one-agent\_predictions-ids.csv
+TOTAL_GB_PROCESSED: 0.00000 GB
