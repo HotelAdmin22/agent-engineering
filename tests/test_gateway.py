@@ -363,3 +363,80 @@ def test_an_unknown_extension_is_refused_rather_than_guessed(tmp_path):
     odd.write_bytes(b"")
     with pytest.raises(ValueError, match="cannot infer"):
         Gateway(odd)
+
+
+# --- a dbt project's DuckDB file (Spider2-DBT) ---------------------------
+#
+# The DBT harness points the same gateway at the task's own .duckdb, which dbt
+# builds into. Two things differ from the warehouse: models land in custom
+# schemas (`+schema: staging` -> main_staging), and the agent's next step is a
+# `dbt run` that needs the write lock -- so the gateway must not hold the file.
+
+@pytest.fixture
+def dbt_db(tmp_path):
+    path = tmp_path / "project.duckdb"
+    con = duckdb.connect(str(path))
+    con.execute("CREATE TABLE raw_orders AS SELECT range AS id, range * 2 AS amt FROM range(50)")
+    con.execute("CREATE SCHEMA main_staging")
+    con.execute("CREATE TABLE main_staging.stg_orders AS SELECT * FROM raw_orders")
+    con.close()
+    return path
+
+
+@pytest.fixture
+def dbt_gw(dbt_db, tmp_path):
+    gw = Gateway(dbt_db, store=EvidenceStore(tmp_path / "e.jsonl"), max_rows=20)
+    yield gw
+    gw.close()
+
+
+def test_tables_in_custom_schemas_are_queryable(dbt_gw):
+    assert "stg_orders" in dbt_gw.allowlist
+    decision, record = dbt_gw.run_sql("SELECT COUNT(*) AS n FROM main_staging.stg_orders")
+    assert decision.allowed, decision.reason
+    assert record.rows == [[50]]
+
+
+@pytest.mark.parametrize("sql", [
+    "DROP TABLE raw_orders",
+    "INSERT INTO raw_orders VALUES (1, 2)",
+    "ATTACH 'other.duckdb' AS o",
+    "COPY raw_orders TO 'out.csv'",
+    "PRAGMA database_list",
+    "SET enable_external_access = true",
+    "SELECT 1; SELECT 2",
+])
+def test_dbt_target_refuses_everything_but_one_select(dbt_gw, sql):
+    decision, record = dbt_gw.run_sql(sql)
+    assert not decision.allowed
+    assert record is None
+
+
+def test_dbt_target_cannot_read_files(dbt_gw, dbt_db):
+    other = dbt_db.parent / "gold.csv"
+    other.write_text("a\n1\n", encoding="utf-8")
+    decision, record = dbt_gw.run_sql(f"SELECT * FROM read_csv('{other.as_posix()}')")
+    assert not decision.allowed
+    assert record is None
+
+
+def test_dbt_target_lock_configuration_holds(dbt_gw):
+    con = dbt_gw._conn()
+    with pytest.raises(duckdb.Error):
+        con.execute("SET enable_external_access = true")
+
+
+def test_dbt_target_limit_is_injected(dbt_gw):
+    decision, record = dbt_gw.run_sql("SELECT * FROM raw_orders")
+    assert "LIMIT 21" in decision.sql
+    assert record.row_count == 20 and record.truncated
+
+
+def test_dbt_target_releases_the_file_on_close(dbt_db, tmp_path):
+    gw = Gateway(dbt_db, store=EvidenceStore(tmp_path / "e2.jsonl"))
+    gw.run_sql("SELECT 1 AS x FROM raw_orders LIMIT 1")
+    gw.close()
+    # dbt needs a read-write handle next; this fails if one is still open.
+    con = duckdb.connect(str(dbt_db))
+    con.execute("CREATE TABLE built AS SELECT 1 AS x")
+    con.close()

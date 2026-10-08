@@ -1,0 +1,10 @@
+{
+  "source_task_count": 68,
+  "status": "PROPOSED by Claude Code from the data, 2026-10-07 -- awaiting owner confirmation (B2)",
+  "excluded": [
+    {"instance_id": "airbnb002", "reason": "no gold database: dbt_gold.zip has no airbnb002/ entry, so evaluate.py cannot score it"},
+    {"instance_id": "biketheft001", "reason": "no gold database: dbt_gold.zip has no biketheft001/ entry, so evaluate.py cannot score it"},
+    {"instance_id": "google_ads001", "reason": "no gold database: dbt_gold.zip has no google_ads001/ entry, so evaluate.py cannot score it"},
+    {"instance_id": "gitcoin001", "reason": "no gold database and no start database: neither zip has a gitcoin001/ entry"}
+  ]
+}

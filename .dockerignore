@@ -31,3 +31,7 @@ docs/*.html
 evals/spider/gold/
 evals/gold/
 evals/seeded/planted.json
+
+# The Spider2-DBT clone (evals/dbt). It contains the DBT gold databases, and
+# the Lite image's `COPY . .` must never pick it up.
+vendor/

@@ -1,0 +1,12 @@
+# Allowlist. Applies only to docker/dbt-sandbox/Dockerfile (BuildKit reads
+# <Dockerfile>.dockerignore in preference to the root .dockerignore), so the
+# Lite build is unaffected. Anything not listed -- .env, vendor/, runs/, the
+# gold sets -- cannot enter this build context.
+*
+!pyproject.toml
+!README.md
+!src/
+!evals/dbt/sandbox_tools/
+!docker/dbt-sandbox/requirements.txt
+**/__pycache__
+**/*.pyc

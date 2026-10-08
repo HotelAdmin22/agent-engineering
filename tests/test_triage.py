@@ -145,3 +145,50 @@ def test_protected_list_covers_every_judging_surface():
     for required in ("src/agent/gateway/", "src/agent/verifier/",
                      "evals/gold/", "evals/seeded/", "tests/"):
         assert required in PROTECTED
+
+
+# --- Spider2-DBT: graders, task set and gold -----------------------------
+
+DBT_GOLD = "vendor/Spider2/spider2-dbt/evaluation_suite/gold/playbook001/playbook.duckdb"
+
+
+@pytest.mark.parametrize("path", [
+    DBT_GOLD,
+    "vendor/Spider2/spider2-dbt/evaluation_suite/gold/spider2_eval.jsonl",
+    "vendor/Spider2/spider2-dbt/evaluation_suite/evaluate.py",
+    "evals/dbt/manifests/tasks_64.json",
+    "runs/dbt/baseline-20260101-000000/attempt_1/playbook001/scoring/gold/spider2_eval.jsonl",
+    "src/agent/../../vendor/Spider2/spider2-dbt/evaluation_suite/eval_utils.py",
+])
+def test_dbt_gold_and_scoring_are_unreadable(tools, path):
+    out, is_error = tools.execute("read_source", {"path": path})
+    assert is_error, f"LEAK: {path}"
+
+
+def test_no_readable_root_contains_dbt_gold_or_scoring():
+    from orchestrator.triage import READABLE_ROOTS, ROOT
+    for target in (ROOT / "vendor", ROOT / "runs" / "dbt" / "x" / "scoring",
+                   ROOT / "evals" / "dbt" / "manifests"):
+        resolved = target.resolve()
+        assert not any(resolved == r or r in resolved.parents for r in READABLE_ROOTS)
+
+
+@pytest.mark.parametrize("path", [
+    "evals/dbt/scoring.py",
+    "evals/dbt/submission.py",
+    "evals/dbt/scripts/selftest_evaluator.py",
+    "evals/dbt/scripts/build_manifest.py",
+    "evals/dbt/scripts/make_splits.py",
+    "evals/dbt/manifests/excluded.json",
+    "docker/dbt-sandbox/Dockerfile",
+    "vendor/Spider2/spider2-dbt/evaluation_suite/eval_utils.py",
+])
+def test_dbt_graders_cannot_be_proposal_targets(path):
+    assert _protected_hit([path]), path
+    report = f"""```json
+    {{"findings": [{{"signature": "s", "occurrences": 3, "class": "incorrect",
+      "diagnosis": "d", "proposed_change": "c", "target_paths": ["{path}"],
+      "assertion": {{"kind": "eval_accuracy_at_least", "value": 0.9}}}}]}}
+    ```"""
+    findings = parse_findings(report)
+    assert findings and not findings[0].actionable

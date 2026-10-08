@@ -1,0 +1,52 @@
+# Spider2-DBT control: the main role only, one loop, no subagents.
+# routed.toml must match this file everywhere except `experiment`,
+# roles.main.tools, [roles.explore], [roles.diagnose] and [delegation];
+# `report --compare` refuses runs whose configs differ anywhere else.
+
+experiment = "baseline"
+attempts = 3                        # D3
+task_manifest = "evals/dbt/manifests/tasks_64.json"
+splits = "evals/dbt/manifests/splits.json"
+spider2_root = "vendor/Spider2/spider2-dbt"   # V9: sparse clone, gitignored
+runs_dir = "runs/dbt"               # V9: runs/ is gitignored
+concurrency = 1                     # D10: smoke = 1; full runs = 4 (compared runs must match)
+task_timeout_s = 900                # D2; covers every role in the task
+
+[sandbox]
+image = "auto"                      # spider2-dbt-sandbox:<content hash>; never a tag here
+network = "none"
+memory = "4g"                       # D7
+cpus = "2"                          # D7
+pids_limit = 256                    # D7
+user = "1000:1000"
+keep_failed_containers = false      # debugging only; never for reportable runs
+
+[api]
+timeout_s = 120
+max_retries = 2
+include_reasoning = true            # V6: store=False needs encrypted reasoning carried forward
+
+[roles.main]
+model = "gpt-6.1-sol"
+system_prompt = "evals/dbt/prompts/main.md"
+tools = ["read_file", "list_files", "search_files", "write_file", "edit_file",
+         "query_duckdb", "run_dbt"]  # D1
+max_turns = 40                      # D2
+# reasoning_effort = ""             # optional; sent only if set; recorded
+
+[limits]
+tool_output_max_chars = 4000
+
+[gateway]
+max_rows_returned = 20
+query_timeout_s = 30
+
+[dbt]
+allowed_commands = ["run", "build", "test", "compile", "parse"]
+tool_timeout_s = 300
+final_run = true
+final_run_timeout_s = 600
+
+[pricing]                           # D5, USD per 1M tokens, listed 2026-10-07
+"gpt-6-luna"  = { input = 0.10, output = 0.50 }
+"gpt-6.1-sol" = { input = 2.00, output = 10.00 }

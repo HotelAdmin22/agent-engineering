@@ -67,3 +67,7 @@ evals/spider/databases/*
 # Benchmark run outputs (transcripts + predictions)
 runs/
 runs/
+
+# Spider2 clone for the Spider2-DBT harness (sparse: spider2-dbt/ + the
+# reference agent's metadata). Large, and it holds the gold databases.
+vendor/

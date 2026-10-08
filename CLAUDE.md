@@ -68,6 +68,37 @@ This repo predates the data agent. Prefer what is here:
 - `orchestrator/findings.py` — verdict vocabulary (PASS/FAIL/NEEDS) and the ledger.
 - `evals/sandbox.py` — the SQLite read-only sandbox used by the Spider harness.
 
+## Spider2-DBT harness
+
+Everything for Spider2-DBT lives in `evals/dbt/` (plus `docker/dbt-sandbox/`
+and `tests/dbt/`). The Lite runner, the root `Dockerfile` and `compose.yaml`
+are separate and untouched by it. See `PROJECT_SETUP.md` and
+`docs/DECISIONS.md`.
+
+- **The gateway also runs inside the sandbox image.** `evals/dbt/sandbox_tools/sql.py`
+  is a thin adapter over `agent.gateway`; it imports no `duckdb`. The image
+  installs `src/` so the same rules apply in the container.
+- **The API key never enters a DBT container or image.** It lives in the host
+  `.env` only. Task and evaluator containers start with no `-e`/`--env-file`,
+  `--network none`, a read-only root and only their workspace mounted. The
+  image's build context is an allowlist (`docker/dbt-sandbox/Dockerfile.dockerignore`).
+- **One loop.** Every DBT role (main, explore, diagnose) runs through
+  `manual_loop/loop_openai.py` via its keyword-only role arguments.
+- **DBT graders and eval sets are in `PROTECTED`:** `evals/dbt/scoring.py`,
+  `submission.py`, `scripts/selftest_evaluator.py`, `scripts/build_manifest.py`,
+  `scripts/make_splits.py`, `evals/dbt/manifests/`, `docker/dbt-sandbox/` and
+  the clone's `vendor/Spider2/spider2-dbt/evaluation_suite/`. Triage can read
+  neither the gold DBs nor `runs/dbt/**/scoring/`.
+- **The image tag is a content hash.** After changing `src/`, `sandbox_tools/`,
+  `pyproject.toml`/`uv.lock` or `docker/dbt-sandbox/`, run
+  `uv run python -m evals.dbt.scripts.build_image` before a DBT run.
+
+```bash
+uv run python -m evals.dbt.scripts.build_image
+uv run python -m evals.dbt.runner --config evals/dbt/configs/baseline.toml
+uv run pytest -m docker                  # container isolation + one full attempt
+```
+
 ## Deliberate cuts
 
 Single tenant, no credential broker, no durable execution. See the table at the

@@ -110,9 +110,16 @@ class DuckDBBackend:
         return _group_columns(cols, con, quote='"')
 
     def table_names(self, con) -> set[str]:
+        # Every user schema, not only `main`. A dbt project with `+schema:
+        # staging` builds its models into `main_staging`, and an allowlist of
+        # `main` alone refuses a query against a table the project itself just
+        # built. authorize() compares bare table names, so a schema-qualified
+        # reference passes exactly when its table exists in some schema here.
+        # Still one file: other catalogs and the system schemas are excluded.
         rows = con.execute(
             "SELECT table_name FROM information_schema.tables "
-            "WHERE table_schema = 'main'"
+            "WHERE table_catalog = current_database() "
+            "AND table_schema NOT IN ('information_schema', 'pg_catalog')"
         ).fetchall()
         return {r[0].lower() for r in rows}
 

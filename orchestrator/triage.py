@@ -40,7 +40,10 @@ from .failures import collect
 
 ROOT = Path(__file__).resolve().parent.parent
 
-# Readable: the implementation. Everything else is invisible.
+# Readable: the implementation. Everything else is invisible -- including the
+# Spider2 clone under vendor/ (its gold DBs) and runs/dbt/**/scoring/, where
+# gold is copied while a prediction is scored. Neither sits under these roots;
+# tests/test_triage.py checks that stays true.
 READABLE_ROOTS = [
     ROOT / "src" / "agent",
     ROOT / "manual_loop",
@@ -63,6 +66,15 @@ PROTECTED = [
     "evals/run_evals.py",      # the grader
     "evals/score_anomalies.py",
     "tests/",                  # the regression suite
+    # Spider2-DBT: its grader path, its task set, and the image graders run in.
+    "evals/dbt/scoring.py",
+    "evals/dbt/submission.py",
+    "evals/dbt/scripts/selftest_evaluator.py",
+    "evals/dbt/scripts/build_manifest.py",
+    "evals/dbt/scripts/make_splits.py",
+    "evals/dbt/manifests/",
+    "docker/dbt-sandbox/",
+    "vendor/Spider2/spider2-dbt/evaluation_suite/",   # evaluate.py + the gold DBs
 ]
 
 MAX_STEPS = 10

@@ -14,6 +14,14 @@ dependencies = [
 ]
 
 [dependency-groups]
+dbt-sandbox = [
+    "dbt-core>=1.9,<1.10",
+    "dbt-duckdb>=1.9,<1.10",
+    "gdown>=6.4.1",
+    "google-cloud-bigquery>=3.46.1",
+    "pandas>=3.0.6",
+    "tqdm>=4.70.1",
+]
 dev = [
     "pytest",
     "anyio",
@@ -29,3 +37,12 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/agent"]
+
+[tool.pytest.ini_options]
+# vendor/ holds the Spider2 clone, whose dbt packages ship their own pytest
+# suites. Without this a bare `pytest` walks into them and fails to collect.
+testpaths = ["tests"]
+norecursedirs = [".*", "vendor", "runs", "data", "transcripts", "node_modules"]
+markers = [
+    "docker: needs Docker and the spider2-dbt-sandbox image; run with -m docker",
+]

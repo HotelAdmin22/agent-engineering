@@ -13,6 +13,7 @@ The caller still supplies `tools` in Anthropic's shape, because the sandbox
 already speaks it. The conversion happens here.
 """
 
+import time
 from typing import Any, Callable
 
 from openai import OpenAI
@@ -28,17 +29,26 @@ REQUEST_TIMEOUT = 120.0     # seconds per request, not per run
 MAX_RETRIES = 5
 
 
-def to_openai_tools(tools: list[dict]) -> list[dict]:
-    """Anthropic tool shape -> the Responses API's flat function shape."""
-    return [
-        {
+def to_openai_tools(tools: list[dict], strict: bool = False) -> list[dict]:
+    """Anthropic tool shape -> the Responses API's flat function shape.
+
+    `strict` asks the API to enforce the schema on the arguments it generates.
+    It requires every property to be listed in `required` and
+    additionalProperties=false, so it is opt-in: the existing tool schemas were
+    not written for it.
+    """
+    out = []
+    for t in tools:
+        spec = {
             "type": "function",
             "name": t["name"],
             "description": t["description"],
             "parameters": t["input_schema"],
         }
-        for t in tools
-    ]
+        if strict:
+            spec["strict"] = True
+        out.append(spec)
+    return out
 
 
 def run_loop(
@@ -50,8 +60,30 @@ def run_loop(
     client: Any = None,
     trace: Callable[[dict], None] | None = None,
     max_total_tokens: int | None = None,
+    *,
+    model: str | None = None,
+    strict_tools: bool = False,
+    deadline: float | None = None,
+    text_format: dict | None = None,
+    store: bool | None = None,
+    include: list[str] | None = None,
+    reasoning: dict | None = None,
+    on_response: Callable[[int, Any], None] | None = None,
 ) -> Result:
-    """Run until the model stops calling tools. Signature matches loop.run_loop."""
+    """Run until the model stops calling tools. Signature matches loop.run_loop.
+
+    The keyword-only arguments exist for callers that run several roles through
+    this one loop (evals/dbt). Every default reproduces the original behaviour:
+
+      model        -- per call, instead of the module-level MODEL
+      strict_tools -- send tools with strict=True
+      deadline     -- a time.monotonic() value; checked before every request
+                      and after every tool call, stops with "timeout"
+      text_format  -- the Responses API `text.format`, e.g. a strict json_schema
+      store, include, reasoning -- passed through only when set
+      on_response  -- called with (turn index, raw response) for every response,
+                      so a caller can log usage and the model id the API echoed
+    """
     import json
 
     emit = trace or (lambda event: None)
@@ -60,16 +92,33 @@ def run_loop(
     items: list[Any] = [{"role": "user", "content": prompt}]
     turns: list[Turn] = []
 
+    def out_of_time() -> bool:
+        return deadline is not None and time.monotonic() >= deadline
+
     for index in range(1, max_iterations + 1):
+        if out_of_time():
+            emit({"kind": "stop", "turn": index, "reason": "timeout"})
+            return Result(None, turns, "timeout", items)
+
         kwargs: dict[str, Any] = {
-            "model": MODEL,
+            "model": model or MODEL,
             "input": items,
-            "tools": to_openai_tools(tools),
+            "tools": to_openai_tools(tools, strict=strict_tools),
         }
         if system:
             kwargs["instructions"] = system
+        if text_format is not None:
+            kwargs["text"] = {"format": text_format}
+        if store is not None:
+            kwargs["store"] = store
+        if include:
+            kwargs["include"] = list(include)
+        if reasoning:
+            kwargs["reasoning"] = dict(reasoning)
 
         response = client.responses.create(**kwargs)
+        if on_response is not None:
+            on_response(index, response)
 
         calls = [i for i in response.output if i.type == "function_call"]
         turns.append(
@@ -129,6 +178,12 @@ def run_loop(
                     "output": f"ERROR: {content}" if is_error else content,
                 }
             )
+
+        # Checked between turns, after every call has its output, so the
+        # transcript stays coherent rather than ending on an unanswered call.
+        if out_of_time():
+            emit({"kind": "stop", "turn": index, "reason": "timeout"})
+            return Result(None, turns, "timeout", items)
 
     emit({"kind": "stop", "reason": "max_iterations"})
     return Result(None, turns, "max_iterations", items)
