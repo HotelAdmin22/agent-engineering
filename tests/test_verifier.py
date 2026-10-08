@@ -398,3 +398,36 @@ def test_the_last_block_wins():
 def test_unparseable_sql_falls_back_rather_than_crashing():
     store = _store_with("this is not sql at all")
     assert verify_sql_answer("```sql\nthis is not sql at all\n```", store, "sqlite").ok
+
+
+# --- the tool surface is per mode ----------------------------------------
+#
+# The first Spider sweep had 7 of 15 tasks write {{e4.zero_value}} INTO their
+# SQL, which sqlglot parsed as STRUCT(STRUCT(...)) and the verifier rejected.
+# None of those 7 had ever CALLED a prose tool -- the schemas alone, all of
+# which talk about evidence ids, were enough to teach the idiom.
+
+def test_sql_mode_does_not_offer_the_arithmetic_tools(tmp_path):
+    from agent.agent import Planner
+    planner = Planner(
+        warehouse="evals/spider/databases/IPL.sqlite",
+        run_dir=tmp_path, mode="sql",
+    )
+    names = {s["name"] for s in planner._tools()}
+    assert names == {"search_catalog", "describe_table", "get_join_path", "run_sql"}
+    assert not names & {"compute_delta", "compute_contribution", "mix_vs_rate"}
+
+
+def test_prose_mode_keeps_them(tmp_path):
+    from agent.agent import Planner
+    planner = Planner(warehouse="data/warehouse.duckdb", run_dir=tmp_path, mode="prose")
+    names = {s["name"] for s in planner._tools()}
+    assert {"compute_delta", "compute_contribution", "mix_vs_rate"} <= names
+
+
+def test_a_placeholder_inside_sql_does_not_match_the_executed_query():
+    """What actually happened: {{e4.zero_value}} parsed as STRUCT(STRUCT(...))."""
+    store = _store_with("SELECT COALESCE(p.v, 0.0) AS x FROM t AS p")
+    answer = "```sql\nSELECT COALESCE(p.v, {{e4.zero_value}}) AS x FROM t p\n```"
+    result = verify_sql_answer(answer, store, "sqlite")
+    assert not result.ok

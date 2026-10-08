@@ -288,6 +288,10 @@ class Planner:
             return None
         return response.output_text
 
+    def _tools(self) -> list[dict]:
+        """Only the tools this mode declares. Everything else does not exist."""
+        return [s for s in _tool_schemas() if s["name"] in self.mode.tools]
+
     def _verify(self, template: str | None) -> VerificationResult:
         """Deterministic, and different per mode. No model in either branch."""
         if self.mode.name == "sql":
@@ -312,7 +316,7 @@ class Planner:
 
         result = loop_openai.run_loop(
             prompt=question,
-            tools=_tool_schemas(),
+            tools=self._tools(),
             execute=self.execute,
             system=self.mode.system,
             max_iterations=max_steps,
@@ -355,7 +359,7 @@ class Planner:
                     f"a {{{{evidence_id.field}}}} placeholder. Reuse the evidence you "
                     f"already gathered; you may run more queries if you need to."
                 ),
-                tools=_tool_schemas(),
+                tools=self._tools(),
                 execute=self.execute,
                 system=self.mode.system,
                 max_iterations=max_steps,

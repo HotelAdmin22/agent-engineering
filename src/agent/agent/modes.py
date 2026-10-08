@@ -68,6 +68,13 @@ class Mode:
     name: str
     system: str
     repair_preamble: str
+    # The tool surface IS the capability boundary. A benchmark task has no use
+    # for the deterministic-arithmetic tools, and exposing them taught the
+    # model an idiom it then used in SQL: 7 of 15 tasks in the first sweep
+    # wrote {{e4.zero_value}} INTO a query, which sqlglot parsed as
+    # STRUCT(STRUCT(...)). None of those 7 had ever CALLED a prose tool -- the
+    # schemas alone were enough.
+    tools: tuple[str, ...]
     # What to say when the step budget runs out and one tool-free turn is left.
     forced_closing: str
 
@@ -126,12 +133,17 @@ one in your answer, and the answer is thrown away.
 ## Finishing
 
 End with the final query in a ```sql fenced block, and nothing after it. That
-single query must produce the answer on its own."""
+single query must produce the answer on its own. It is plain SQL -- no
+templating, no placeholders, nothing in {{double braces}}."""
 
 PROSE = Mode(
     name="prose",
     system=PROSE_SYSTEM,
     repair_preamble="Your previous answer was rejected by the verifier",
+    tools=(
+        "search_catalog", "describe_table", "get_join_path", "run_sql",
+        "compute_delta", "compute_contribution", "mix_vs_rate",
+    ),
     forced_closing=(
         "Every number must still be a {{evidence_id.field}} placeholder. If the "
         "evidence is incomplete, say so and answer what it does support."
@@ -142,6 +154,7 @@ SQL = Mode(
     name="sql",
     system=SQL_SYSTEM,
     repair_preamble="Your previous query was rejected by the verifier",
+    tools=("search_catalog", "describe_table", "get_join_path", "run_sql"),
     forced_closing=(
         "Give the best query you have already run, in a ```sql fenced block. "
         "Do not invent a new one -- an unexecuted query is rejected."
