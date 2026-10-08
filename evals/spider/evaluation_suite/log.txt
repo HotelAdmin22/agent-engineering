@@ -1,6 +1,6 @@
-Evaluating Exec Results:   0%|          | 0/9 [00:00<?, ?it/s]Evaluating Exec Results: 100%|##########| 9/9 [00:00<00:00, 260.46it/s]
-{'local003': 0, 'local007': 1, 'local008': 1, 'local009': 1, 'local010': 0, 'local015': 1, 'local017': 1, 'local020': 0, 'local026': 0}
-Final score: 0.5555555555555556, Correct examples: 5, Total examples: 9
-Real score: 0.009140767824497258, Correct examples: 5, Total examples: 547
-Correct IDs saved to: C:\Users\l\agent-engineering\runs\spider-one-agent\_predictions-ids.csv
+Evaluating Exec Results:   0%|          | 0/15 [00:00<?, ?it/s]Evaluating Exec Results: 100%|##########| 15/15 [00:00<00:00, 234.38it/s]
+{'local002': 0, 'local003': 0, 'local004': 1, 'local007': 0, 'local008': 1, 'local009': 1, 'local010': 0, 'local015': 0, 'local017': 1, 'local018': 1, 'local019': 1, 'local020': 1, 'local021': 1, 'local022': 1, 'local026': 1}
+Final score: 0.6666666666666666, Correct examples: 10, Total examples: 15
+Real score: 0.018281535648994516, Correct examples: 10, Total examples: 547
+Correct IDs saved to: C:\Users\l\agent-engineering\runs\exp1-tools\_predictions-ids.csv
 TOTAL_GB_PROCESSED: 0.00000 GB
