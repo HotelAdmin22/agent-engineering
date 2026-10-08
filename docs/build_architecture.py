@@ -198,10 +198,6 @@ def live_status():
          "note": "findings tracked across runs"},
         {"label": "OPENAI_API_KEY", "value": "set" if env.get("OPENAI_API_KEY") else "missing",
          "ok": bool(env.get("OPENAI_API_KEY")), "note": "Luna worker"},
-        {"label": "ANTHROPIC_API_KEY",
-         "value": "set" if env.get("ANTHROPIC_API_KEY") else "missing",
-         "ok": bool(env.get("ANTHROPIC_API_KEY")),
-         "note": "verifier; the OAuth token is not accepted by the low-level SDK"},
     ]
 
 

@@ -66,7 +66,10 @@ This repo predates the data agent. Prefer what is here:
 - `manual_loop/loop_openai.py` — the OpenAI tool-use loop. Do not write a second one.
 - `orchestrator/trace.py` — the console tracer, passed as `trace=`.
 - `orchestrator/findings.py` — verdict vocabulary (PASS/FAIL/NEEDS) and the ledger.
-- `evals/sandbox.py` — the SQLite read-only sandbox used by the Spider harness.
+- `src/agent/gateway/` — the only module that opens a database. One gateway,
+  two backends (DuckDB and SQLite), inferred from the file extension. The Lite
+  harness's old `evals/sandbox.py` was folded into it; do not reintroduce a
+  second read-only SQL surface.
 
 ## Spider2-DBT harness
 
