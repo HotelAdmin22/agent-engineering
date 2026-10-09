@@ -103,5 +103,9 @@ def empty_result(run_id: str, experiment: str, attempt: int, instance_id: str,
         "usage_by_role": {}, "total_cost_usd": 0.0,
         "subagent_calls": {"explore": 0, "diagnose": 0, "errors": 0, "budget_stops": 0},
         "tool_calls": 0, "tool_errors": 0, "gateway_rejections": 0, "dbt_calls": 0,
+        # What the injected .yml spec cost. Declared here so the field exists
+        # even on an attempt that dies before staging -- the last prompt change
+        # cost 70% more input tokens and nothing recorded it per attempt.
+        "models_declared": 0, "spec_chars": 0,
         "error": None, "started_at": now_iso(), "finished_at": None,
     }

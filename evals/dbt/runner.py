@@ -36,7 +36,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from . import config as config_mod
-from . import records, sandbox, scoring, submission
+from . import records, sandbox, scoring, spec, submission
 from .agent_adapter import Outcome, TaskContext, run_task
 from .docker_exec import ContainerDead, run_tool
 from .image import content_tag, inputs_hash
@@ -235,7 +235,17 @@ def run_attempt(task: Task, attempt: int, split: str, cfg: dict, run_id: str,
                           deadline=time.monotonic() + float(cfg["task_timeout_s"]),
                           client=client, run_id=run_id, instance_id=task.instance_id,
                           include_reasoning=cfg["api"].get("include_reasoning", True))
-        outcome = run_task(task.instruction, ctx)
+        # The project's own .yml spec, read on the host from the staged
+        # workspace and handed over for free. Source is models/**/*.yml --
+        # never task.evaluation, which names the scored tables.
+        instruction, spec_stats = (
+            spec.augment(task.instruction, attempt_dir / "workspace")
+            if cfg.get("prompt", {}).get("inject_model_spec", True)
+            else (task.instruction, {"models_declared": 0, "spec_chars": 0})
+        )
+        result.update(spec_stats)
+        (attempt_dir / "instruction.md").write_text(instruction, encoding="utf-8")
+        outcome = run_task(instruction, ctx)
 
         if outcome.status != "harness_error" and cfg["dbt"].get("final_run", True):
             try:

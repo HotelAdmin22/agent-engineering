@@ -57,6 +57,13 @@ max_turns = 40                      # D2
 [limits]
 tool_output_max_chars = 4000
 
+[prompt]
+# Splice the project's own models/**/*.yml spec into the task instruction, read
+# on the host so it costs the agent no turns. Experiment 2 asked the agent to
+# read those files itself: max_turns went 5 -> 29 and mean input 280k -> 479k
+# tokens before it could say anything about accuracy. Set false to A/B it.
+inject_model_spec = true
+
 [gateway]
 max_rows_returned = 20
 query_timeout_s = 30

@@ -73,6 +73,11 @@ PROTECTED = [
     "evals/dbt/scripts/build_manifest.py",
     "evals/dbt/scripts/make_splits.py",
     "evals/dbt/manifests/",
+    # Builds the task prompt. Not a grader, but it sits one import away from
+    # the answer key: task.evaluation carries condition_tabs, and a prompt
+    # built from those names would hand over the marking scheme. An agent
+    # scored on the pass rate has every reason to make exactly that edit.
+    "evals/dbt/spec.py",
     "docker/dbt-sandbox/",
     "vendor/Spider2/spider2-dbt/evaluation_suite/",   # evaluate.py + the gold DBs
 ]
