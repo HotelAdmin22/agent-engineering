@@ -64,6 +64,13 @@ def _refuse(stage: str, reason: str) -> Decision:
     return Decision(allowed=False, stage=stage, reason=reason)
 
 
+def _as_index(allowlist) -> dict[str, tuple[str, ...]]:
+    """Accept either a backend's {name: refs} index or a plain set of names."""
+    if isinstance(allowlist, dict):
+        return allowlist
+    return {str(n).lower(): (str(n),) for n in allowlist}
+
+
 class Gateway:
     """Read-only SQL execution against one DuckDB file."""
 
@@ -90,7 +97,13 @@ class Gateway:
         # Inferred from the file extension unless named: .duckdb or .sqlite.
         self.backend = backends.for_path(self.db_path, backend)
         self._con = None
-        self.allowlist = allowlist if allowlist is not None else self._discover_tables()
+        # bare lowercase name -> the qualified reference(s) that resolve to it.
+        # Membership is the authorization check; the values exist so a refusal
+        # can name a reference the model can actually paste into a query.
+        # A caller passing a plain set of names still works.
+        self.allowlist: dict[str, tuple[str, ...]] = _as_index(
+            allowlist if allowlist is not None else self._discover_tables()
+        )
 
     # --- connection ------------------------------------------------------
 
@@ -154,19 +167,35 @@ class Gateway:
                     f"{node_type.__name__.upper()} is not allowed in a read-only gateway",
                 )
 
-        # authorize: known tables only
+        # authorize: known tables only.
+        #
+        # The engine's own catalog is exempt. Refusing information_schema was
+        # the single largest source of rejected calls in the DBT benchmark --
+        # 169 of 361 -- because it is the only way the agent can discover what
+        # dbt just built, and the sandbox has no describe tool. It reads the
+        # one attached file: ATTACH is refused above, enable_external_access
+        # is off, so this exposes nothing the allowlist did not already print
+        # in its own refusal text.
         cte_names = {c.alias_or_name.lower() for c in tree.find_all(exp.CTE)}
         tables = []
         for table in tree.find_all(exp.Table):
             name = table.name.lower()
-            if name and name not in cte_names:
-                tables.append(name)
+            schema = (table.db or "").lower()
+            if not name or name in cte_names:
+                continue
+            if self.backend.is_introspection(schema, name):
+                continue
+            tables.append(name)
         unknown = sorted({t for t in tables if t not in self.allowlist})
         if unknown:
+            available = sorted(
+                ref for refs in self.allowlist.values() for ref in refs
+            )
             return _refuse(
                 "authorize",
                 f"unknown table(s): {', '.join(unknown)}. "
-                f"Available: {', '.join(sorted(self.allowlist))}",
+                f"Available (use the name exactly as written, schema included): "
+                f"{', '.join(available)}",
             )
 
         # lint: a join with no ON/USING and no WHERE is a cartesian product

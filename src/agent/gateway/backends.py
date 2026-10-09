@@ -101,27 +101,46 @@ class DuckDBBackend:
 
         return isinstance(exc, duckdb.Error)
 
-    def describe(self, con) -> list[dict]:
-        cols = con.execute(
-            "SELECT table_name, column_name, data_type "
-            "FROM information_schema.columns WHERE table_schema = 'main' "
-            "ORDER BY table_name, ordinal_position"
-        ).fetchall()
-        return _group_columns(cols, con, quote='"')
+    def is_introspection(self, schema: str, name: str) -> bool:
+        return schema == "information_schema"
 
-    def table_names(self, con) -> set[str]:
+    def describe(self, con) -> list[dict]:
+        # Every user schema, not only `main` -- for the reason given under
+        # table_names. A dbt project's models live in main_staging,
+        # main_stg_shopify and so on, and a describe restricted to `main`
+        # reported an empty project.
+        cols = con.execute(
+            "SELECT table_schema, table_name, column_name, data_type "
+            "FROM information_schema.columns "
+            "WHERE table_catalog = current_database() "
+            "AND table_schema NOT IN ('information_schema', 'pg_catalog') "
+            "ORDER BY table_schema, table_name, ordinal_position"
+        ).fetchall()
+        rows = [
+            (_duck_ref(schema, table), f'"{schema}"."{table}"', column, dtype)
+            for schema, table, column, dtype in cols
+        ]
+        return _group_columns(rows, con)
+
+    def table_names(self, con) -> dict[str, tuple[str, ...]]:
         # Every user schema, not only `main`. A dbt project with `+schema:
         # staging` builds its models into `main_staging`, and an allowlist of
         # `main` alone refuses a query against a table the project itself just
         # built. authorize() compares bare table names, so a schema-qualified
         # reference passes exactly when its table exists in some schema here.
         # Still one file: other catalogs and the system schemas are excluded.
+        #
+        # The qualified form is carried alongside, because a bare name is not
+        # enough to WRITE the query. An agent that reads stg_shopify__product
+        # off an allowlist and submits it gets back "does not exist! Did you
+        # mean main_stg_shopify.stg_shopify__product?" -- 142 times in one
+        # 192-attempt run. The refusal now names the reference that works.
         rows = con.execute(
-            "SELECT table_name FROM information_schema.tables "
+            "SELECT table_schema, table_name FROM information_schema.tables "
             "WHERE table_catalog = current_database() "
             "AND table_schema NOT IN ('information_schema', 'pg_catalog')"
         ).fetchall()
-        return {r[0].lower() for r in rows}
+        return _index([(_duck_ref(schema, table), table) for schema, table in rows])
 
 
 class SQLiteBackend:
@@ -176,6 +195,12 @@ class SQLiteBackend:
     def is_engine_error(self, exc: Exception) -> bool:
         return isinstance(exc, sqlite3.Error)
 
+    def is_introspection(self, schema: str, name: str) -> bool:
+        # SQLite's catalog is a table, not a schema. ATTACH is denied by the
+        # connection authorizer, so this describes the one open file and
+        # nothing else.
+        return not schema and name in ("sqlite_master", "sqlite_schema")
+
     def describe(self, con) -> list[dict]:
         names = [r[0] for r in con.execute(
             "SELECT name FROM sqlite_master WHERE type IN ('table','view') "
@@ -191,22 +216,41 @@ class SQLiteBackend:
             out.append({"table": table, "columns": columns, "row_count": n})
         return out
 
-    def table_names(self, con) -> set[str]:
+    def table_names(self, con) -> dict[str, tuple[str, ...]]:
         rows = con.execute(
             "SELECT name FROM sqlite_master WHERE type IN ('table','view') "
             "AND name NOT LIKE 'sqlite_%'"
         ).fetchall()
-        return {r[0].lower() for r in rows}
+        # One namespace, so the qualified form is the bare form.
+        return _index([(r[0], r[0]) for r in rows])
 
 
-def _group_columns(cols, con, quote: str) -> list[dict]:
-    tables: dict[str, list[dict]] = {}
-    for table, column, dtype in cols:
-        tables.setdefault(table, []).append({"name": column, "type": dtype})
+def _duck_ref(schema: str, table: str) -> str:
+    """How a query should name this table. `main` is implicit; nothing else is."""
+    return table if schema == "main" else f"{schema}.{table}"
+
+
+def _index(pairs) -> dict[str, tuple[str, ...]]:
+    """bare lowercase name -> the qualified reference(s) resolving to it.
+
+    One name can exist in several schemas, so the value is a tuple. The
+    allowlist check needs only the key; the refusal text needs the values.
+    """
+    out: dict[str, list[str]] = {}
+    for ref, bare in pairs:
+        out.setdefault(bare.lower(), []).append(ref)
+    return {name: tuple(sorted(set(refs))) for name, refs in out.items()}
+
+
+def _group_columns(rows, con) -> list[dict]:
+    """rows are (display name, quoted reference, column name, column type)."""
+    tables: dict[str, tuple[str, list[dict]]] = {}
+    for label, ref, column, dtype in rows:
+        tables.setdefault(label, (ref, []))[1].append({"name": column, "type": dtype})
     out = []
-    for table, columns in tables.items():
-        n = con.execute(f"SELECT COUNT(*) FROM {quote}{table}{quote}").fetchone()[0]
-        out.append({"table": table, "columns": columns, "row_count": n})
+    for label, (ref, columns) in tables.items():
+        n = con.execute(f"SELECT COUNT(*) FROM {ref}").fetchone()[0]
+        out.append({"table": label, "columns": columns, "row_count": n})
     return out
 
 

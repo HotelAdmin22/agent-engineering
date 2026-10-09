@@ -397,6 +397,74 @@ def test_tables_in_custom_schemas_are_queryable(dbt_gw):
     assert record.rows == [[50]]
 
 
+# --- schema discovery ----------------------------------------------------
+#
+# These four exist because of a measured failure, not a hypothesis. In run
+# luna-20261009-030506, 169 of 361 gateway rejections were the agent asking
+# information_schema what the database contained, and a further 142 execution
+# errors were it guessing a bare name for a table that lives in a dbt schema.
+# The sandbox has no describe tool, so refusing introspection left it with no
+# way at all to learn what `dbt run` had just built.
+
+def test_information_schema_is_readable(dbt_gw):
+    decision, record = dbt_gw.run_sql(
+        "SELECT table_schema, table_name FROM information_schema.tables "
+        "WHERE table_schema NOT IN ('information_schema', 'pg_catalog')"
+    )
+    assert decision.allowed, decision.reason
+    found = {(r[0], r[1]) for r in record.rows}
+    assert ("main_staging", "stg_orders") in found
+    assert ("main", "raw_orders") in found
+
+
+def test_information_schema_columns_is_readable(dbt_gw):
+    decision, record = dbt_gw.run_sql(
+        "SELECT column_name FROM information_schema.columns "
+        "WHERE table_name = 'stg_orders'"
+    )
+    assert decision.allowed, decision.reason
+    assert {r[0] for r in record.rows} == {"id", "amt"}
+
+
+def test_refusal_names_the_qualified_reference(dbt_gw):
+    """A bare name is not enough to write the query that follows."""
+    decision = dbt_gw.authorize("SELECT * FROM stg_order")  # singular: a typo
+    assert not decision.allowed
+    # Not just "stg_orders" -- the schema the model has to type with it.
+    assert "main_staging.stg_orders" in decision.reason
+    # A table in `main` keeps its bare form, because that is what works there.
+    assert "raw_orders" in decision.reason
+
+
+def test_describe_covers_every_user_schema(dbt_gw):
+    tables = {t["table"]: t for t in dbt_gw.describe_schema()}
+    assert "raw_orders" in tables                 # main stays implicit
+    assert "main_staging.stg_orders" in tables    # anything else is qualified
+    assert tables["main_staging.stg_orders"]["row_count"] == 50
+
+
+def test_introspection_does_not_open_a_second_file(dbt_gw, dbt_db):
+    """Readable catalog, still one database."""
+    other = dbt_db.parent / "secret.duckdb"
+    con = duckdb.connect(str(other))
+    con.execute("CREATE TABLE answers AS SELECT 1 AS gold")
+    con.close()
+    decision, record = dbt_gw.run_sql(
+        "SELECT table_catalog, table_name FROM information_schema.tables"
+    )
+    assert decision.allowed, decision.reason
+    assert "answers" not in {r[1] for r in record.rows}
+
+
+@needs_spider
+def test_sqlite_master_is_readable(sqlite_gw):
+    decision, record = sqlite_gw.run_sql(
+        "SELECT name FROM sqlite_master WHERE type = 'table'"
+    )
+    assert decision.allowed, decision.reason
+    assert record.row_count > 0
+
+
 @pytest.mark.parametrize("sql", [
     "DROP TABLE raw_orders",
     "INSERT INTO raw_orders VALUES (1, 2)",
