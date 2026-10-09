@@ -1,5 +1,40 @@
 # Spider2-DBT baseline and failure triage
 
+> **CORRECTION (2026-10-08).** The `col_order` category below is wrong, and so
+> is the "8 free wins" recommendation built on it. The evaluator does **not**
+> compare columns by position. `eval_utils.compare_pandas_table` takes each
+> required gold column and asks whether *any* predicted column matches it as a
+> vector:
+>
+> ```python
+> gold_cols = gold.iloc[:, condition_cols]   # WHICH gold columns matter
+> pred_cols = pred                            # ALL predicted columns
+> for gold in t_gold_list:
+>     if not any(vectors_match(gold, pred) for pred in t_pred_list):
+>         score = 0
+> ```
+>
+> Column order is irrelevant. My categoriser inferred `col_order` from ordered
+> column *names* and never read the evaluator. Verifying `asana001` is what
+> caught it — and that task turns out to fail on a single genuinely different
+> value, an unordered `STRING_AGG` whose list contains the same set of projects
+> in a different order.
+>
+> Two further findings from that check:
+>
+> - The agent produced `asana__team` with its columns in exactly the order
+>   `models/asana.yml` declares. **Gold deviates from its own schema file**
+>   (`number_of_active_projects` and `active_projects` are swapped). The agent
+>   followed the documented contract; gold did not.
+> - The real categories are therefore: wrong row count, wrong values, missing
+>   table — plus a distinct **list-order** mode where an aggregated string holds
+>   the right set in a nondeterministic order.
+>
+> The baseline number (15/64, 23.4%) and everything in "It is not the harness"
+> are unaffected — those came from run records, not from this diff. Sections
+> below marked with a strikethrough heading are superseded.
+
+
 Run `luna-20261008-182025`. The first **reportable** measurement in this
 project: clean git tree, full task set, three attempts.
 
@@ -71,7 +106,7 @@ wearing a label that implies forty.
 
 ---
 
-## What the failures actually are
+## ~~What the failures actually are~~ (superseded — see the correction above)
 
 Diffed the submitted DuckDB against gold for every failing task on attempt 1,
 on exactly the tables and columns `spider2_eval.jsonl` compares.
@@ -125,7 +160,7 @@ failure, and it sits in the same task as a purely cosmetic one.
 
 ---
 
-## What to do next, in order
+## ~~What to do next, in order~~ (superseded — see the correction above)
 
 1. **Verify the 8 near-misses.** The `col_order` label fires when row counts
    match and the ordered column names differ. That is a strong hint, not proof
