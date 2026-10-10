@@ -72,6 +72,23 @@ def final_dbt_run(timeout_s: float = 600.0) -> dict:
     return {"exit_code": code, "timed_out": timed_out, "log": output}
 
 
+def final_dbt_test(timeout_s: float = 600.0) -> dict:
+    """The harness's own `dbt test` after the agent stops.
+
+    Not a verdict on the task -- the evaluator decides that. This runs the
+    assertions the *project* already declares about itself: 1,235 of them
+    across 80% of the task set, 809 `not_null` and 280 `unique`. Those are
+    precisely the two failure modes measured on the submissions: columns that
+    came out NULL where a value belonged, and models built at the wrong grain,
+    which a `unique` test catches as COUNT(*) != COUNT(DISTINCT key).
+
+    The agent ran `test` or `build` in 23% of attempts. One task shipped 2,777
+    NULLs in three columns its own schema marks `not_null` and never looked.
+    """
+    code, output, timed_out = _run(_argv("test", None), timeout_s)
+    return {"exit_code": code, "timed_out": timed_out, "log": output}
+
+
 def dbt_debug(timeout_s: float = 120.0) -> dict:
     """Readiness check (scripts/check_tasks_dbt). Not an agent tool."""
     code, output, timed_out = _run(_argv("debug", None), timeout_s)

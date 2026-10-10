@@ -76,6 +76,8 @@ def handle(tool: str, request: dict) -> dict:
         return result                      # already tail-bounded
     elif tool == "final_dbt_run":
         return dbt_runner.final_dbt_run(float(limits.get("final_run_timeout_s", 600)))
+    elif tool == "final_dbt_test":
+        return dbt_runner.final_dbt_test(float(limits.get("final_run_timeout_s", 600)))
     elif tool == "dbt_debug":
         return dbt_runner.dbt_debug(float(limits.get("timeout_s", 120)))
     else:

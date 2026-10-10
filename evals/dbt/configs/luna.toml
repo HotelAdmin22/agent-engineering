@@ -95,6 +95,18 @@ tool_timeout_s = 300
 final_run = true
 final_run_timeout_s = 600
 
+# After the agent stops, run the project's own declared assertions and give it
+# one pass to fix failures. 80% of these projects declare column tests (809
+# not_null, 280 unique) and the agent ran `test` in 23% of attempts -- so the
+# check already exists in the repo and is simply not consulted. not_null and
+# unique target the two measured failure modes directly: columns that came out
+# NULL, and models built at the wrong grain.
+#
+# A failing assertion is evidence, not a verdict: gold sometimes deviates from
+# its own schema, so this never fails the attempt by itself. The evaluator
+# remains the only thing that decides.
+test_gate = true
+
 [pricing]                           # D5, USD per 1M tokens, listed 2026-10-07
 "gpt-6-luna"  = { input = 0.10, output = 0.50 }
 "gpt-6.1-sol" = { input = 2.00, output = 10.00 }

@@ -38,7 +38,7 @@ from dotenv import load_dotenv
 
 from . import config as config_mod
 from . import records, sandbox, scoring, spec, submission
-from .agent_adapter import Outcome, TaskContext, run_task
+from .agent_adapter import Outcome, TaskContext, run_role, run_task
 from .docker_exec import ContainerDead, run_tool
 from .image import content_tag, inputs_hash
 from .tasks import ROOT, Task, file_sha256, load_manifest, load_splits
@@ -266,6 +266,7 @@ def run_attempt(task: Task, attempt: int, split: str, cfg: dict, run_id: str,
         result.update(spec_stats)
         (attempt_dir / "instruction.md").write_text(instruction, encoding="utf-8")
         outcome = run_task(instruction, ctx)
+        outcome, result["test_repair"] = test_gate(name, ctx, outcome, cfg, attempt_dir)
 
         if outcome.status != "harness_error" and cfg["dbt"].get("final_run", True):
             try:
@@ -332,6 +333,70 @@ def run_attempt(task: Task, attempt: int, split: str, cfg: dict, run_id: str,
     records.write_json_atomic(attempt_dir / "result.json", result)
     prune_attempt(attempt_dir, cfg, attempt)
     return result
+
+
+REPAIR = """Your models are built, but `dbt test` fails. These are the project's
+own declared assertions about its models -- not my opinion of your work, and
+not the scoring. A `not_null` failure means a column you produced is NULL where
+the schema says it never is; a `unique` failure means the model has more rows
+than its key allows, so a join has duplicated them.
+
+{log}
+
+Fix the models so these pass, then run `run_dbt` with command `test` to confirm.
+If an assertion is genuinely wrong about the data, leave it and say which and
+why -- do not delete the test, disable the model, or weaken the schema to make
+it pass.
+"""
+
+
+def test_gate(container: str, ctx, outcome: Outcome, cfg: dict,
+              attempt_dir: Path) -> tuple[Outcome, dict]:
+    """Run the project's own assertions, and give one pass to fix failures.
+
+    The agent decides it is finished when `dbt run` exits 0, which says only
+    that the SQL compiled. Measured on 192 attempts: 141 of 147 failures had a
+    clean dbt exit. Meanwhile 80% of these projects declare column tests --
+    809 `not_null` and 280 `unique` -- and the agent ran `test` in 23% of
+    attempts. One flaky task shipped 2,777 NULLs in three columns its own
+    schema marks `not_null`, passing on the attempts where it happened not to.
+
+    So the signal already exists in the repo and is simply not consulted. This
+    consults it. A gate rather than a sentence in the prompt, for the reason
+    CLAUDE.md gives about boundaries: an instruction is advice, and the
+    measured compliance rate for this particular advice is 23%.
+
+    It deliberately does not fail the attempt when tests fail. Gold sometimes
+    deviates from its own schema, so a failing assertion is evidence, not a
+    verdict -- the evaluator stays the only thing that decides.
+    """
+    stats = {"ran": False, "exit_code": None, "repaired": False}
+    if outcome.status != "completed" or not cfg["dbt"].get("test_gate", False):
+        return outcome, stats
+    try:
+        r = run_tool(container, "final_dbt_test", {}, ctx.limits,
+                     float(cfg["dbt"]["final_run_timeout_s"]) + 30)
+    except ContainerDead:
+        return outcome, stats
+    # NOT `log`: that is the module logger, and shadowing it turned the
+    # error path below into an AttributeError.
+    test_log = r.payload.get("log") or r.payload.get("error", "")
+    (attempt_dir / "dbt_test.log").write_text(test_log, encoding="utf-8")
+    stats["ran"] = True
+    stats["exit_code"] = r.payload.get("exit_code")
+    if stats["exit_code"] in (0, None):
+        return outcome, stats
+
+    main = ctx.roles["main"]
+    tail = test_log[-int(cfg["limits"].get("tool_output_max_chars", 4000)):]
+    try:
+        repaired = run_role(ctx, main, REPAIR.format(log=tail), attempt_dir, ctx.deadline)
+    except Exception as exc:  # noqa: BLE001 -- a failed repair keeps the first answer
+        log.warning("test-gate repair failed: %s", exc)
+        return outcome, stats
+    stats["repaired"] = True
+    return Outcome(outcome.status, outcome.main_turns + repaired.num_turns,
+                   outcome.error, outcome.failure_category, repaired.final_text), stats
 
 
 def prune_attempt(attempt_dir: Path, cfg: dict, attempt: int) -> None:

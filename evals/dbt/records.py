@@ -107,5 +107,9 @@ def empty_result(run_id: str, experiment: str, attempt: int, instance_id: str,
         # even on an attempt that dies before staging -- the last prompt change
         # cost 70% more input tokens and nothing recorded it per attempt.
         "models_declared": 0, "spec_chars": 0,
+        # Did the project's own assertions run, did they fail, did the agent
+        # get a repair pass? Recorded so the gate's effect is measurable
+        # separately from its cost.
+        "test_repair": {"ran": False, "exit_code": None, "repaired": False},
         "error": None, "started_at": now_iso(), "finished_at": None,
     }
