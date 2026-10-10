@@ -59,7 +59,16 @@ system_prompt = "evals/dbt/prompts/main.md"
 tools = ["read_file", "list_files", "search_files", "write_file", "edit_file",
          "query_duckdb", "run_dbt"]  # D1
 max_turns = 40                      # D2
-# reasoning_effort = ""             # optional; sent only if set; recorded
+# Five runs changed what the agent KNOWS -- catalog access, the .yml spec twice,
+# its own declared assertions -- and pass@1 did not leave 0.219-0.266 once. The
+# catalog fix removed 168 refused reads and moved accuracy by nothing. That is a
+# consistent message: the gap is authoring the SQL, not finding the schema.
+#
+# This is the first change aimed at the authoring itself, and the whole reason
+# it is worth trying before anything else is the price. Reasoning is billed as
+# output: 1,700 tokens per attempt at $0.50/Mtok. Even eight times the thinking
+# adds ~$1.14 to a 192-attempt run.
+reasoning_effort = "high"
 
 [limits]
 tool_output_max_chars = 4000
@@ -105,7 +114,16 @@ final_run_timeout_s = 600
 # A failing assertion is evidence, not a verdict: gold sometimes deviates from
 # its own schema, so this never fails the attempt by itself. The evaluator
 # remains the only thing that decides.
-test_gate = true
+# OFF: measured null. The gate fires correctly and names the right rows --
+# provider001's assertions flagged the same 2,857 rows a gold diff found -- but
+# it does not convert. Over 157 gated attempts, those whose assertions passed
+# clean scored 0.259 and those that failed and were repaired scored 0.222. One
+# task passed, was repaired, and then failed. Knowing which rows are wrong is
+# not the same as being able to fix them.
+#
+# Code and tests kept: the finding is about the repair pass, not about running
+# the assertions, and the logs it writes are useful on their own.
+test_gate = false
 
 [pricing]                           # D5, USD per 1M tokens, listed 2026-10-07
 "gpt-6-luna"  = { input = 0.10, output = 0.50 }
