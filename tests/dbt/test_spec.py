@@ -124,3 +124,17 @@ def test_augment_takes_no_evaluation_argument():
     import inspect
     params = set(inspect.signature(spec.augment).parameters)
     assert params == {"instruction", "workspace", "max_chars"}
+
+
+def test_injection_is_off_unless_a_config_asks_for_it():
+    """baseline.toml has no [prompt] section and is the reportable control.
+
+    The injected spec was measured harmful -- turn cap hit 2 -> 19, +147k
+    input tokens per attempt, 28 passes against 31. A config that says nothing
+    must not inherit it.
+    """
+    import inspect
+
+    from evals.dbt import runner
+    src = inspect.getsource(runner.run_attempt)
+    assert 'get("inject_model_spec", False)' in src

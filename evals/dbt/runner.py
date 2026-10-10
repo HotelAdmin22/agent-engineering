@@ -258,9 +258,13 @@ def run_attempt(task: Task, attempt: int, split: str, cfg: dict, run_id: str,
         # The project's own .yml spec, read on the host from the staged
         # workspace and handed over for free. Source is models/**/*.yml --
         # never task.evaluation, which names the scored tables.
+        # Default OFF: measured harmful (turn cap hit 2 -> 19, +147k input
+        # tokens per attempt, 28 passes against 31). A config with no [prompt]
+        # section -- baseline.toml, the reportable control -- must not silently
+        # inherit it.
         instruction, spec_stats = (
             spec.augment(task.instruction, attempt_dir / "workspace")
-            if cfg.get("prompt", {}).get("inject_model_spec", True)
+            if cfg.get("prompt", {}).get("inject_model_spec", False)
             else (task.instruction, {"models_declared": 0, "spec_chars": 0})
         )
         result.update(spec_stats)
