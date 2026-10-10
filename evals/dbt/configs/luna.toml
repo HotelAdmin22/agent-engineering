@@ -25,11 +25,18 @@ splits = "evals/dbt/manifests/splits.json"
 spider2_root = "vendor/Spider2/spider2-dbt"   # V9: sparse clone, gitignored
 runs_dir = "runs/dbt"               # V9: runs/ is gitignored
 concurrency = 2                     # see note below
-# D10 plans concurrency 4 for full runs. Not here: each container caps at
-# --memory 4g and this host has 16.7 GB total, so 4 workers can claim all of
-# it. An OOMKilled container is recorded as an `execution` failure, which would
-# quietly degrade the result rather than fail loudly. 2 halves the wall clock
-# with ~8 GB of headroom. Any run compared with this one must also use 2.
+# D10 plans concurrency 4 for full runs. Not here -- but the original reason
+# given was wrong, so here is the measured one.
+#
+# The old note reasoned from the 4g *limit* and concluded 4 workers could claim
+# all of RAM. A limit is a cap, not a reservation. Sampled during
+# luna-20261010-163234: peak 240 MB per container, 5.85% of the cap, two
+# containers together under 300 MB. 192 attempts have recorded 0 OOMs. Memory
+# is not what bounds concurrency here; API rate and wall-clock cost are.
+#
+# It stays at 2 for one reason only: **any run pooled with another must use the
+# same value**, and the k=3 runs it is being compared against used 2. Change it
+# only when starting a fresh comparison set.
 task_timeout_s = 900                # D2; covers every role in the task
 
 [sandbox]
