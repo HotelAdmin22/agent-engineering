@@ -25,6 +25,7 @@ import argparse
 import csv
 import logging
 import platform
+import shutil
 import subprocess
 import sys
 import threading
@@ -42,6 +43,10 @@ from .docker_exec import ContainerDead, run_tool
 from .image import content_tag, inputs_hash
 from .tasks import ROOT, Task, file_sha256, load_manifest, load_splits
 from .tools import specs_hash
+
+# Pruning keeps a run near 1.6 GB; this is headroom for the
+# in-flight attempts plus the image's own scratch.
+MIN_FREE_GB = 8.0
 
 log = logging.getLogger("evals.dbt")
 _print_lock = threading.Lock()
@@ -160,6 +165,20 @@ def fingerprint_diff(a: dict, b: dict, prefix: str = "") -> list[str]:
     return out
 
 
+def check_free_space(min_gb: float = MIN_FREE_GB) -> None:
+    """Refuse at minute zero rather than at attempt 3 of 3.
+
+    A run that dies on ENOSPC has already spent its money and cannot be
+    scored. That is not hypothetical: it cost ~3 hours and $7 on 2026-10-09.
+    """
+    free_gb = shutil.disk_usage(ROOT).free / 2**30
+    if free_gb < min_gb:
+        raise RunRefused(
+            f"{free_gb:.1f} GB free, need {min_gb} GB. Reclaim it with "
+            "`uv run python -m evals.dbt.scripts.prune_runs --all --dry-run` "
+            "and drop --dry-run when the list looks right.")
+
+
 def validate(cfg: dict, image: str, allow_dirty: bool) -> None:
     import os
     for name, role in cfg["roles"].items():
@@ -181,6 +200,7 @@ def validate(cfg: dict, image: str, allow_dirty: bool) -> None:
     if git_dirty() and not allow_dirty:
         raise RunRefused("git tree is dirty; commit first, or pass --allow-dirty "
                          "(recorded; the run is then not reportable)")
+    check_free_space()
 
 
 # --- one task attempt ------------------------------------------------------
@@ -310,7 +330,33 @@ def run_attempt(task: Task, attempt: int, split: str, cfg: dict, run_id: str,
         for k in ("tool_calls", "tool_errors", "gateway_rejections", "dbt_calls"):
             result[k] = ctx.counts.get(k, 0)
     records.write_json_atomic(attempt_dir / "result.json", result)
+    prune_attempt(attempt_dir, cfg, attempt)
     return result
+
+
+def prune_attempt(attempt_dir: Path, cfg: dict, attempt: int) -> None:
+    """Drop the attempt's bulk now that it is scored.
+
+    A run kept ~9.5 GB -- 64 tasks x 3 attempts x ~28 MB, almost all of it the
+    staged workspace and the submitted database. On 2026-10-09 that filled the
+    disk and killed a run three hours in, at attempt 3 of 3. Nothing downstream
+    reads either directory: the summary, triage and this module all work from
+    result.json and tool_calls.jsonl, which are ~1% of the bytes.
+
+    Submissions are kept for one attempt, because diffing a prediction against
+    gold is the only way to learn what a failure actually was, and it cannot be
+    done after the fact. Attempt 1 by default, which is the one worth diffing.
+    """
+    import shutil
+
+    keep = cfg.get("runs", {}).get("keep_submissions_for_attempt", 1)
+    targets = ["workspace"]
+    if keep != attempt:
+        targets.append("submission")
+    for name in targets:
+        target = attempt_dir / name
+        if target.is_dir():
+            shutil.rmtree(target, ignore_errors=True)
 
 
 def is_done(attempt_dir: Path) -> bool:

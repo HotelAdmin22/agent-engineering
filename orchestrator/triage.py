@@ -78,6 +78,9 @@ PROTECTED = [
     # built from those names would hand over the marking scheme. An agent
     # scored on the pass rate has every reason to make exactly that edit.
     "evals/dbt/spec.py",
+    # Gold-derived failure analysis, in prose. Outside READABLE_ROOTS already;
+    # listed here so it stays unreachable if those roots ever grow.
+    "analysis/",
     "docker/dbt-sandbox/",
     "vendor/Spider2/spider2-dbt/evaluation_suite/",   # evaluate.py + the gold DBs
 ]

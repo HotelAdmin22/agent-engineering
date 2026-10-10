@@ -57,12 +57,26 @@ max_turns = 40                      # D2
 [limits]
 tool_output_max_chars = 4000
 
+[runs]
+# Each attempt's workspace and submitted database are deleted once it is
+# scored: ~28 MB x 192 attempts filled a 466 GB disk and killed a run at
+# attempt 3 of 3. Submissions are kept for this one attempt, because diffing a
+# prediction against gold is the only way to learn what a failure was and it
+# cannot be done later. 0 keeps none.
+keep_submissions_for_attempt = 1
+
 [prompt]
-# Splice the project's own models/**/*.yml spec into the task instruction, read
-# on the host so it costs the agent no turns. Experiment 2 asked the agent to
-# read those files itself: max_turns went 5 -> 29 and mean input 280k -> 479k
-# tokens before it could say anything about accuracy. Set false to A/B it.
-inject_model_spec = true
+# OFF: measured harmful. Splicing the project's models/**/*.yml spec into the
+# instruction cost no turns to deliver -- the block is ~800 tokens -- but on
+# 128 scored attempts it raised mean turns 19.3 -> 23.6, attempts hitting the
+# 40-turn cap 2 -> 19, mean input tokens 274k -> 422k, and cost $3.78 -> $5.72,
+# for 28 passes against 31. Naming 11 models and saying each must exist sent
+# the agent off building models the task never asked for.
+#
+# The code stays, tested and flag-controlled, because the finding is about this
+# wording rather than about the mechanism. Anything that turns it back on needs
+# a shorter block that does not imply the whole list is in scope.
+inject_model_spec = false
 
 [gateway]
 max_rows_returned = 20
