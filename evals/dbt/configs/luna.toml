@@ -68,7 +68,11 @@ max_turns = 40                      # D2
 # it is worth trying before anything else is the price. Reasoning is billed as
 # output: 1,700 tokens per attempt at $0.50/Mtok. Even eight times the thinking
 # adds ~$1.14 to a 192-attempt run.
-reasoning_effort = "high"
+# reasoning_effort = "high"   # exp6: NULL. 0.250 -> 0.255 pass@1 (+0.3 tasks),
+#   noise band WIDENED 0.219-0.266 -> 0.188-0.297, cost +57%, turn-cap hits 6 -> 17.
+#   Reasoning tokens did rise 1,700 -> 3,745, so the lever pulled; the output did
+#   not follow. Attempts 1-2 were 0.297/0.281 and attempt 3 was 0.188 on identical
+#   inputs. Only pass^3 moved, 0.156 -> 0.172.
 
 [limits]
 tool_output_max_chars = 4000
