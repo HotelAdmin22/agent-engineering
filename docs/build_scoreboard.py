@@ -141,20 +141,38 @@ color:var(--dim);font-size:13px}
 """
 
 
-def gauge(best: float | None) -> str:
-    if best is None:
+def gauge(runs: list[dict]) -> str:
+    """The figure shown is POOLED over every completed attempt of the current
+    configuration, not the best single run.
+
+    Showing the maximum would be the exact error this project has now made
+    twice: a single k=3 run landed at 17.7/64 and the identical config landed
+    at 16.0/64 the next time. A gauge that reports the luckiest draw is a
+    gauge that lies about progress.
+    """
+    scored = [r for r in runs if r["rates"]]
+    if not scored:
         return "<p class='dim'>No completed attempt yet.</p>"
-    pct = min(best / TASKS * 100, 100)
+    recent = scored[-2:]                       # the current config's runs
+    rates = [x for r in recent for x in r["rates"]]
+    est = sum(rates) / len(rates) * TASKS
+    best = max(r["tasks"] for r in scored)
+    sd = (sum((x - sum(rates) / len(rates)) ** 2 for x in rates) / max(len(rates) - 1, 1)) ** 0.5
+    ci = 1.96 * sd / len(rates) ** 0.5 * TASKS
+    pct = min(est / TASKS * 100, 100)
     tgt = TARGET / TASKS * 100
-    cls = "ok" if best >= TARGET else "warn"
+    cls = "ok" if est - ci >= TARGET else "warn"
     return f"""<div class="gauge">
-<div class="big {cls}">{best:.1f} / {TASKS}</div>
-<div class="dim">best measured pass@1 &middot; target {TARGET} &middot;
-ceiling {TASKS - len(UNWINNABLE)} (5 tasks are unpassable by anyone)</div>
+<div class="big {cls}">{est:.1f} / {TASKS}</div>
+<div class="dim">pooled pass@1 over {len(rates)} attempts of the current
+configuration &middot; 95% CI &plusmn;{ci:.1f} tasks &middot; target {TARGET}
+&middot; ceiling {TASKS - len(UNWINNABLE)} (5 tasks are unpassable by anyone)</div>
 <div class="bar"><div class="fill" style="width:{pct:.1f}%"></div>
 <div class="target" style="left:{tgt:.1f}%"></div></div>
 <div class="dim" style="font-size:13px">gap to target:
-<strong class="{cls}">{max(TARGET - best, 0):.1f} tasks</strong></div></div>"""
+<strong class="{cls}">{max(TARGET - est, 0):.1f} tasks</strong>
+&nbsp;&middot;&nbsp; best single run was {best:.1f}, which did not replicate &mdash;
+pooled is the honest number</div></div>"""
 
 
 def runs_table(runs: list[dict]) -> str:
@@ -194,7 +212,6 @@ def ledger_cards(rows: list[dict]) -> str:
 def main() -> None:
     runs = load_runs()
     scored = [r for r in runs if r["pass_at_1"] is not None]
-    best = max((r["tasks"] for r in scored), default=None)
     rows = load_ledger()
     built = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
@@ -207,7 +224,7 @@ records and the experiment ledger &mdash; never from the gold set.</p>
 <div class="meta"><span>built {built}</span><span>git {escape(git_state())}</span>
 <span>{len(scored)} scored run(s)</span><span>{len(rows)} recorded experiment(s)</span></div>
 
-{gauge(best)}
+{gauge(runs)}
 
 <h2>Every run</h2>
 <p class="sub">pass@1 is the mean of the completed per-attempt rates. Partial
@@ -311,8 +328,10 @@ there.</footer>
 </main></body></html>"""
     OUT.write_text(html, encoding="utf-8")
     print(f"wrote {OUT.relative_to(ROOT)}  ({len(html):,} bytes)")
-    if best is not None:
-        print(f"best pass@1: {best:.1f}/{TASKS}   target {TARGET}   gap {max(TARGET-best,0):.1f}")
+    rates=[x for r in runs[-2:] for x in r["rates"]]
+    if rates:
+        est=sum(rates)/len(rates)*TASKS
+        print(f"pooled pass@1 over {len(rates)} attempts: {est:.1f}/{TASKS}   target {TARGET}   gap {max(TARGET-est,0):.1f}")
 
 
 if __name__ == "__main__":
