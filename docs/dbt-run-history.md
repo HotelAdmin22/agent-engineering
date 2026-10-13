@@ -21,9 +21,9 @@ must stay there.
 
 | Run | Changed | pass@1 | Tasks | pass^3 | Cost |
 | --- | --- | --- | --- | --- | --- |
-| `luna-20261008-182025` | baseline | 0.234 | 15/64 | 0.156 | $5.79 |
-| `luna-20261009-030506` | prompt: "read the .yml files" | 0.224 | 14/64 | 0.125 | $9.76 |
-| `luna-20261009-143212` | gateway: catalog access | 0.250 | 16/64 | 0.156 | $5.76 |
+| `luna-20261008-182025` | baseline | 0.234 | 15/64 | 0.156 | $1.33 |
+| `luna-20261009-030506` | prompt: "read the .yml files" | 0.224 | 14/64 | 0.125 | $2.02 |
+| `luna-20261009-143212` | gateway: catalog access | 0.250 | 16/64 | 0.156 | $1.31 |
 | `luna-20261009-213400` | prompt: injected model spec | — | — | — | crashed, disk full |
 
 Experiment 4 crashed before it could be scored, but its two complete attempts
@@ -91,7 +91,7 @@ correctness. That was predicted in writing before the run.
 
 Experiment 2 added a prompt section telling the agent to read every
 `models/*.yml` first. Result: `max_turns` 5 → 29, budget failures 4 → 23, mean
-input tokens 280k → 479k, cost $5.79 → $9.76, and accuracy inside noise.
+input tokens 280k → 479k, cost $1.33 → $2.02, and accuracy inside noise.
 Reverted.
 
 The follow-up (`7c11098`) delivers the same content from the host at no turn

@@ -194,7 +194,13 @@ def test_main_role_usage_and_status(ctx):
     assert outcome.status == "completed" and outcome.main_turns == 2
     u = ctx.usage_by_role["main"]
     assert u["calls"] == 2 and u["input_tokens"] == 2000 and u["models_returned"] == ["gpt-6.1-sol-echo"]
-    assert u["cost_usd"] == pytest.approx(2000 / 1e6 * 2 + 200 / 1e6 * 10)
+    # 400 of the 2000 input tokens are cached (200 per call, two calls), and
+    # cached input is priced separately since D5 was revised -- the old bound
+    # ran 4.5x the real figure at these runs' 92% cache hit rate.
+    assert u["cached_input_tokens"] == 400
+    assert u["cost_usd"] == pytest.approx(
+        1600 / 1e6 * 2 + 400 / 1e6 * 0.20 + 200 / 1e6 * 10)
+    assert u["cost_usd_upper"] == pytest.approx(2000 / 1e6 * 2 + 200 / 1e6 * 10)
     req = ctx.client.requests[0]
     assert req["input"][0]["content"] == "build the models"     # verbatim
     assert req["store"] is False and all(t["strict"] for t in req["tools"])

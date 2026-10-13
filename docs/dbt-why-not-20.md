@@ -3,7 +3,7 @@
 The target was 20 of 64 tasks on Spider2-DBT. Eight experiments and roughly
 1,500 scored attempts later, the established figure is **16.8/64 (95% CI
 15.7–18.0)**. This page is the account of why, written so the next person does
-not spend another week and $60 rediscovering it.
+not spend another week and ~$14 rediscovering it.
 
 **It does not say 20 is impossible.** It says 20 is 4.3 tasks away, names
 exactly where those tasks would have to come from, and shows that every lever
@@ -159,19 +159,25 @@ and it is the one thing a harness cannot supply.
 
 ## 5. Everything that was tried, and what killed it
 
-Each of these cost roughly $6 and 3.5 hours. **Do not repeat them without a
+> **Costs corrected 2026-10-13.** Every figure here was previously ~4.5x too
+> high. The harness costed cached input at the full input rate as a deliberate
+> upper bound (D5) and that bound was then quoted as the actual cost. The cache
+> hit rate on these runs is 92-94%, so ten full runs billed $62.29 on the old
+> arithmetic and about $13.65 in reality. A Luna k=3 run costs **~$1.30**, not ~$6.
+
+Each of these cost roughly $1.30 and 3.5 hours. **Do not repeat them without a
 new reason.**
 
 | Lever | What it measurably did | Accuracy |
 | --- | --- | --- |
 | **Gateway catalog access** *(kept)* | refused catalog reads 168 → 0; failed-call rate 6.5% → 4.0% | none |
-| Agent reads the `.yml` spec | max_turns 5 → 29; cost $5.79 → $9.76 | worse |
+| Agent reads the `.yml` spec | max_turns 5 → 29; cost $1.33 → $2.02 | worse |
 | Spec injected free from the host | +147k input tokens/attempt — 180× the block's own size | worse |
 | `dbt test` gate + repair pass | named the right rows; repaired attempts 0.222 vs clean 0.259 | none |
 | `reasoning_effort = "high"` | reasoning 1,700 → 3,745 tokens; noise band *widened* | none |
 | More turns | capped attempts pass at 0.361 vs 0.238; failures stop at median 19 of 40 | ruled out |
 | Infer conventions from pre-built models | scored table present at start in only 11/64; agent already queries it in 8 | dropped |
-| Don't rewrite working models *(kept on cost)* | turns 19.4 → 17.6; cost $5.76 → $5.23 | +0.8, not established |
+| Don't rewrite working models *(kept on cost)* | turns 19.4 → 17.6; cost $1.31 → $1.26 | +0.8, not established |
 | Repair the build failures it caused | execution failures 10, 7 → 3 | none — those tasks fail on content anyway |
 
 Three of these deserve emphasis because of what they rule out:

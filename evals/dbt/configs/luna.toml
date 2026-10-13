@@ -130,5 +130,5 @@ final_run_timeout_s = 600
 test_gate = false
 
 [pricing]                           # D5, USD per 1M tokens, listed 2026-10-07
-"gpt-6-luna"  = { input = 0.10, output = 0.50 }
-"gpt-6.1-sol" = { input = 2.00, output = 10.00 }
+"gpt-6-luna"  = { input = 0.10, output = 0.50, cached_input = 0.01 }
+"gpt-6.1-sol" = { input = 2.00, output = 10.00, cached_input = 0.20 }

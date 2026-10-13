@@ -117,9 +117,24 @@ class TaskContext:
         for k, v in nums.items():
             entry[k] += v
         price = self.cfg["pricing"][model_requested]
-        # Cached input is costed at the full input price (D5: upper bound).
-        entry["cost_usd"] = round(entry["input_tokens"] / 1e6 * price["input"]
+        # D5 originally costed cached input at the full input price, as a
+        # deliberate upper bound. That bound turned out to be 4.5x the real
+        # figure and was being quoted as the actual cost: the cache hit rate
+        # on these runs is 92-94%, because each turn resends a long and almost
+        # unchanged prefix. Ten full runs billed $62.29 on the old arithmetic
+        # and about $13.65 in reality.
+        #
+        # cached_input is priced explicitly now. cost_usd is what the run
+        # should actually cost; cost_usd_upper keeps the old bound for configs
+        # whose pricing table predates this.
+        cached = min(entry["cached_input_tokens"], entry["input_tokens"])
+        fresh = entry["input_tokens"] - cached
+        cached_rate = price.get("cached_input", price["input"])
+        entry["cost_usd"] = round(fresh / 1e6 * price["input"]
+                                  + cached / 1e6 * cached_rate
                                   + entry["output_tokens"] / 1e6 * price["output"], 6)
+        entry["cost_usd_upper"] = round(entry["input_tokens"] / 1e6 * price["input"]
+                                        + entry["output_tokens"] / 1e6 * price["output"], 6)
         return nums
 
     @property

@@ -96,7 +96,7 @@ guessed schema qualification wrongly. Fixing it took refused catalog reads
 confound; not an accuracy lever.
 
 **Telling the agent to read `models/*.yml`.** max_turns 5 → 29, budget
-failures 4 → 23, input tokens 280k → 479k, cost $5.79 → $9.76, accuracy
+failures 4 → 23, input tokens 280k → 479k, cost $1.33 → $2.02, accuracy
 inside noise. Reverted.
 
 **Injecting the same spec for free from the host.** The block is ~800 tokens
@@ -188,7 +188,7 @@ one. Best case 16 → 19.
 ## If you pick this up
 
 1. **Do not re-run anything in the "what does not work" list** without a new
-   reason. Each costs ~$6 and ~3.5 hours.
+   reason. Each costs ~$1.30 and ~3.5 hours.
 2. **Judge nothing on a single attempt.** The per-attempt range is
    0.188–0.297. pass@1 averages three for exactly this reason, and even three
    leaves a ±3-point band. If you need to detect a 2-task change, you need
