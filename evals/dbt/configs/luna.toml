@@ -68,11 +68,18 @@ max_turns = 40                      # D2
 # it is worth trying before anything else is the price. Reasoning is billed as
 # output: 1,700 tokens per attempt at $0.50/Mtok. Even eight times the thinking
 # adds ~$1.14 to a 192-attempt run.
-# reasoning_effort = "high"   # exp6: NULL. 0.250 -> 0.255 pass@1 (+0.3 tasks),
-#   noise band WIDENED 0.219-0.266 -> 0.188-0.297, cost +57%, turn-cap hits 6 -> 17.
-#   Reasoning tokens did rise 1,700 -> 3,745, so the lever pulled; the output did
-#   not follow. Attempts 1-2 were 0.297/0.281 and attempt 3 was 0.188 on identical
-#   inputs. Only pass^3 moved, 0.156 -> 0.172.
+# RE-ENABLED 2026-10-13 for a k=6 test. exp6 reverted this on a k=3 null, and
+# that decision was made under a 4.5x-inflated cost model: the "+57% cost" cited
+# against it was $9.02 vs $5.76 in the old arithmetic and $2.01 vs $1.31 in
+# reality -- seventy cents.
+#
+# The k=3 result hid something. Its three attempts were 0.297, 0.281 and 0.188.
+# The first two are two of the four best attempts recorded in this project
+# across 26; the third is the worst. That is exactly the shape k=3 cannot
+# resolve, and this repo's own guidance says detecting a 2-task change needs
+# k=6. The guidance was written and then not applied, because k=6 was believed
+# to cost $12. It costs about $2.60.
+reasoning_effort = "high"
 
 [limits]
 tool_output_max_chars = 4000

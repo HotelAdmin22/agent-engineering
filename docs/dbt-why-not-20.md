@@ -215,6 +215,29 @@ long attempts are long because the model is lost, not because it needs room.
 
 ---
 
+## 6b. Where cost beliefs distorted the work
+
+Worth recording, because it is the kind of error that hides inside a method
+rather than inside a number.
+
+For nine experiments the harness costed cached input at the full input rate --
+a deliberate upper bound that was then quoted as the actual cost. The real
+cache hit rate is 92-94%, so a run cost about **$1.30, not $6**.
+
+That mattered more than the arithmetic:
+
+- This page says detecting a 2-task change needs **k=6**. Every experiment was
+  run at **k=3**, because k=6 was believed to cost $12. It costs $2.60.
+- A k=6 control run was **killed partway through** on the reasoning that it
+  could not move the number and cost money.
+- `reasoning_effort = "high"` was **reverted on a k=3 null**, citing a "+57%
+  cost" that was $2.01 against $1.31. Its three attempts were 0.297, 0.281 and
+  0.188: the first two are two of the four best attempts out of 26 recorded,
+  the third is the worst. That is precisely the shape k=3 cannot resolve.
+
+The rule about k=6 was written here and then not applied to a revert decision.
+A standard that only governs the results you like is not a standard.
+
 ## 7. What would actually move it
 
 Honestly, and in order of expected effect:

@@ -354,14 +354,22 @@ fail legitimately. Report pass@1 on /{TASKS} and state the ceiling beside it.</p
 
 <h2>If you pick this up</h2>
 <ol>
+<li><strong>A run costs ~$1.30, not ~$6.</strong> The harness priced cached
+input at the full rate as an upper bound and that bound was quoted as the real
+cost for nine experiments. The cache hit rate here is 92&ndash;94%. This is not
+trivia: it changed which experiments looked affordable, and at least one revert
+decision cited a &ldquo;+57% cost&rdquo; that was really seventy cents.</li>
 <li><strong>Do not re-run anything in the ruled-out table</strong> without a new
-reason. Each costs ~$6 and ~3.5 hours.</li>
+reason &mdash; but check whether the reason it was ruled out was k=3. Two of
+them were.</li>
 <li><strong>Judge nothing on a single attempt.</strong> The per-attempt range is
 0.188&ndash;0.297. Even k=3 leaves a &plusmn;3-point band; detecting a 2-task
 change needs k=6. One experiment here was called a success after two attempts
-and the third erased it.</li>
+and the third erased it &mdash; and another was <em>reverted</em> on a k=3 null
+whose two best attempts were two of the four best ever recorded. Apply the rule
+to reverts, not just to wins.</li>
 <li><strong>The measurement layer has been wrong more often than the agent.</strong>
-Seven separate measurement bugs were found during this work, and in every case
+Eight separate measurement bugs were found during this work, and in every case
 the agent was right and the thing grading it was wrong. Verify a surprising
 number before acting on it.</li>
 <li><strong>The remaining gap is interpretive, not mechanical.</strong> 80% of
