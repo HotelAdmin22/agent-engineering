@@ -1,5 +1,9 @@
 # Spider2-DBT: what every run so far has measured
 
+> **Why the target was not reached:** `docs/dbt-why-not-20.md`.
+> 32 of 64 tasks never solved in 25 attempts; 5 unpassable by anyone;
+> 80% of failures are interpretive, not mechanical.
+
 The run directories these numbers came from have been deleted; they were
 ~28 MB per attempt and filled a 466 GB disk. What survives is each attempt's
 `result.json` and `tool_calls.jsonl`, plus this page. See

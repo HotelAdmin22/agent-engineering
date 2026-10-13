@@ -226,6 +226,32 @@ records and the experiment ledger &mdash; never from the gold set.</p>
 
 {gauge(runs)}
 
+<div class="card refuted" style="border-left-width:4px">
+<h4 style="font-size:17px">Why this does not reach {TARGET}/{TASKS}</h4>
+<p>Across up to 25 attempts each, <strong>32 of the 64 tasks have never been
+solved once</strong>. Five of those are unpassable by anyone &mdash; broken gold
+filenames, gold missing its own compared tables, and one task shipping 1 of the
+8 source tables it needs &mdash; so the real ceiling is
+<strong>{TASKS - len(UNWINNABLE)}/{TASKS}</strong>. The model solves 5 tasks every
+time and another 27 <em>sometimes</em>; those 27 are worth 27 if made reliable
+and currently return 10.7, so <strong>16.3 tasks are locked up in
+flakiness</strong>.</p>
+<p>Reaching {TARGET} means recovering <strong>4.3 tasks</strong>, from one of
+only two places: fully stabilising the five flakiest tasks (which currently land
+about 1 time in 20), or reliably solving 4 of the 32 never-passed. For scale,
+the best consistency gain across eight experiments was pass^3 0.156 &rarr;
+0.188 &mdash; 10 to 12 tasks passing all three attempts.</p>
+<p><strong>The cause is not mechanical.</strong> Zero broken joins across 45
+failing tasks; 80% are defensible readings of tasks that never say which reading
+they want. <code>tpch001</code> asks for &ldquo;each customer&rdquo; and the
+model returned all of them; gold wanted only active ones. <code>f1001</code> is
+the same model erring the opposite way. 2% of 766 declared models state their
+grain; 74% say nothing. <strong>You cannot engineer your way to an undocumented
+convention</strong> &mdash; which is why information, self-checking, more
+thinking and more turns all measured zero.</p>
+<p class="dim">Full account with the numbers:
+<code>docs/dbt-why-not-20.md</code>.</p></div>
+
 <h2>Every run</h2>
 <p class="sub">pass@1 is the mean of the completed per-attempt rates. Partial
 attempts are excluded from the rate and flagged, because a half-finished
@@ -288,6 +314,24 @@ failed-call rate 6.5% &rarr; 4.0%</td><td class="dim">none</td></tr>
 <tr><td>reasoning_effort = high</td><td>reasoning 1,700 &rarr; 3,745 tokens; noise band <em>widened</em></td><td class="dim">none</td></tr>
 <tr><td>More turns</td><td>capped attempts pass at 0.361 vs 0.238; failures stop at median 19 of 40</td><td class="dim">ruled out</td></tr>
 <tr><td>Infer conventions from pre-built models</td><td>scored table present at start in 11/64; agent already queries it in 8</td><td class="dim">dropped</td></tr></table>
+
+<h3>The limitations, stated plainly</h3>
+<ol>
+<li><strong>Convention inference.</strong> The model cannot reliably guess which
+of several defensible interpretations a task intends. ~80% of failures. Not
+addressable from the harness.</li>
+<li><strong>Output variance.</strong> On identical inputs the same task flips
+between pass and fail, and passing and failing attempts are operationally
+indistinguishable (19.1 vs 20.1 turns, 1.7 vs 2.2 tool errors). Individual
+attempts of identical configurations have ranged from <strong>12 to 19
+tasks</strong>.</li>
+<li><strong>A hard wall on half the set.</strong> 32 of 64 tasks have never been
+solved once in up to 25 attempts.</li>
+<li><strong>False confidence.</strong> It stops at a median of 19 turns with 21
+unused, believing it is done, and is wrong. The test gate proved it has no
+internal signal for this: handed its exact failing rows by name, it still could
+not fix them.</li>
+</ol>
 
 <h3>Where the {TARGET} tasks actually are</h3>
 <p>In the best run, 10 tasks passed all three attempts and 11 passed one or two.

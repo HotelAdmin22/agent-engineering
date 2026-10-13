@@ -6,6 +6,12 @@ experiments, and the measurements now say fairly clearly why. The useful
 content here is the list of things that do **not** work and the evidence that
 rules them out, because each one costs about $6 and 3.5 hours to re-learn.
 
+**Why this does not reach 20/64 is documented separately and in full:**
+`docs/dbt-why-not-20.md`. The short form: 32 of the 64 tasks have never
+been solved once in up to 25 attempts, 5 of those are unpassable by anyone,
+and 80% of the remaining failures are defensible readings of tasks that
+never say which reading they want.
+
 Companion pages: `docs/luna-scoreboard.html` (generated, the live numbers),
 `docs/dbt-run-history.md` (the run ledger). Gold-derived detail lives in
 `analysis/`, outside triage's readable roots.
