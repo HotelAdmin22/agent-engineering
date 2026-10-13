@@ -13,11 +13,14 @@ available from the harness has been tried and measured at zero.
 
 ## 1. The number, and how firm it is
 
-Pooled over the 6 attempts of the current configuration:
+Pooled over the 9 attempts of the current prompt family:
 
 ```
-pass@1 = 0.263 = 16.8/64      sd 0.023      95% CI 15.7 – 18.0 tasks
+pass@1 = 0.257 = 16.4/64      95% CI 15.6 – 17.3 tasks
 ```
+
+That is the tightest estimate in the project, and the control's 16.0 sits
+inside it. **The gap to 20 is 3.6 tasks.**
 
 Across all eight runs, individual attempts of **identical configurations**
 have landed anywhere from **12 to 19 tasks**. That seven-task spread is pure
@@ -169,6 +172,7 @@ new reason.**
 | More turns | capped attempts pass at 0.361 vs 0.238; failures stop at median 19 of 40 | ruled out |
 | Infer conventions from pre-built models | scored table present at start in only 11/64; agent already queries it in 8 | dropped |
 | Don't rewrite working models *(kept on cost)* | turns 19.4 → 17.6; cost $5.76 → $5.23 | +0.8, not established |
+| Repair the build failures it caused | execution failures 10, 7 → 3 | none — those tasks fail on content anyway |
 
 Three of these deserve emphasis because of what they rule out:
 

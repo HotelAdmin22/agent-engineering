@@ -157,7 +157,7 @@ def gauge(runs: list[dict]) -> str:
     scored = [r for r in runs if r["rates"]]
     if not scored:
         return "<p class='dim'>No completed attempt yet.</p>"
-    recent = scored[-2:]                       # the current config's runs
+    recent = scored[-3:]                       # the current prompt family
     rates = [x for r in recent for x in r["rates"]]
     est = sum(rates) / len(rates) * TASKS
     best = max(r["tasks"] for r in scored)
@@ -169,7 +169,7 @@ def gauge(runs: list[dict]) -> str:
     return f"""<div class="gauge">
 <div class="big {cls}">{est:.1f} / {TASKS}</div>
 <div class="dim">pooled pass@1 over {len(rates)} attempts of the current
-configuration &middot; 95% CI &plusmn;{ci:.1f} tasks &middot; target {TARGET}
+prompt family &middot; 95% CI &plusmn;{ci:.1f} tasks &middot; target {TARGET}
 &middot; ceiling {TASKS - len(UNWINNABLE)} (2 tasks are unpassable by anyone)</div>
 <div class="bar"><div class="fill" style="width:{pct:.1f}%"></div>
 <div class="target" style="left:{tgt:.1f}%"></div></div>
@@ -377,7 +377,7 @@ there.</footer>
 </main></body></html>"""
     OUT.write_text(html, encoding="utf-8")
     print(f"wrote {OUT.relative_to(ROOT)}  ({len(html):,} bytes)")
-    rates=[x for r in runs[-2:] for x in r["rates"]]
+    rates=[x for r in runs[-3:] for x in r["rates"]]
     if rates:
         est=sum(rates)/len(rates)*TASKS
         print(f"pooled pass@1 over {len(rates)} attempts: {est:.1f}/{TASKS}   target {TARGET}   gap {max(TARGET-est,0):.1f}")
