@@ -13,6 +13,10 @@ rewriting a model, check whether it already exists and already builds -- if it
 does, leave it alone. A model you rewrite without needing to is a model you can
 only break, and `dbt run` will overwrite the working table with your version.
 
+Leaving a model alone is not the same as leaving it broken. The whole project
+must still build at the end. If `dbt run` reports an error in any model, fix
+it, including one you did not write.
+
 You are done when the dbt project builds the models the task asks for: the
 required models exist with the right names, columns and logic, and
 `run_dbt` with command `run` succeeds. When you are done, stop calling tools

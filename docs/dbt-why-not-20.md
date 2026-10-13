@@ -53,23 +53,33 @@ never solved in 25 tries.
 made reliable and currently return 10.7. That headroom is where any realistic
 gain lives.
 
-### Of the 32 never-solved, five are unpassable by anyone
+### Of the 32 never-solved, two are unpassable by anyone
 
-`xero_new001`, `xero_new002`, `social_media001`, `chinook001`, `tpch002` —
-verified 0 of 9 attempts each across three runs, for reasons that have nothing
-to do with the model:
+**Corrected 2026-10-12.** This page previously said five, and a ceiling of
+59/64. That was wrong, and the error is worth keeping visible because it
+flattered the result.
 
-- Three name a gold file the gold directory does not contain (`evaluate.py`
-  joins the filename literally, with no globbing, so the open fails and the
-  task silently scores 0).
-- `chinook001`'s gold database does not contain the tables its own eval spec
-  compares.
-- `tpch002` ships a starting database with 1 of the 8 source tables its
-  project needs, no seeds, and an empty `packages.yml`.
+Genuinely unpassable &mdash; **2 tasks**:
 
-**The real ceiling is 59/64 = 92.2%.** Report pass@1 on /64 and state the
-ceiling beside it. Do not quietly change denominators — but do know that 5 of
-your gap is not the model's fault.
+- `chinook001`: its gold database does not contain `dim_customer`,
+  `fct_invoice` or `obt_invoice`, the three tables its own eval spec compares.
+  There is nothing to be scored against.
+- `tpch002`: ships a starting database with 1 of the 8 source tables its
+  project needs, no seeds, and an empty `packages.yml`. It cannot be built.
+
+**Unscoreable, but not unpassable &mdash; 3 tasks.** `xero_new001`,
+`xero_new002` and `social_media001` name a gold file their directory does not
+contain, so `evaluate.py` raised and they scored 0 whatever the agent did. The
+file that *is* there holds every table the spec compares, so this was a typo
+in Spider2's eval set. `evals/dbt/scoring.py` now resolves it inside the staged
+copy.
+
+That recovered no passes: scored against the correct gold, all three
+submissions from three separate runs still score 0. They fail legitimately.
+But they now fail for the real reason, so a future change that solved one
+would be visible rather than silently discarded.
+
+**The real ceiling is 62/64 = 96.9%**, not 59/64.
 
 ---
 

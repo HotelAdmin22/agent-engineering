@@ -1,7 +1,7 @@
 # Spider2-DBT: what every run so far has measured
 
 > **Why the target was not reached:** `docs/dbt-why-not-20.md`.
-> 32 of 64 tasks never solved in 25 attempts; 5 unpassable by anyone;
+> 32 of 64 tasks never solved in 25 attempts; 2 unpassable by anyone (3 more were unscoreable, now fixed);
 > 80% of failures are interpretive, not mechanical.
 
 The run directories these numbers came from have been deleted; they were
@@ -126,7 +126,7 @@ Verified **0 for 9 attempts each**, across all three completed runs.
 `evaluate.py` joins the gold filename literally with no globbing, so a missing
 file raises and scores 0 silently.
 
-**The ceiling is 59/64 = 92.2%.** Report pass@1 on /64 and state the ceiling
+**The ceiling is 62/64 = 96.9%.** Report pass@1 on /64 and state the ceiling
 beside it. Do not quietly switch denominators — shrinking the denominator
 after seeing a result is the move the `PROTECTED` list exists to prevent.
 

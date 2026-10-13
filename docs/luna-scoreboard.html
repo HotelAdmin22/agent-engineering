@@ -43,14 +43,14 @@ color:var(--dim);font-size:13px}
 <h1>Spider2&#8209;DBT: getting <code>gpt-6-luna</code> to 20/64</h1>
 <p class="sub">What has moved pass@1, what has not, and why. Generated from run
 records and the experiment ledger &mdash; never from the gold set.</p>
-<div class="meta"><span>built 2026-10-13 02:27 UTC</span><span>git ec9bdb0 (uncommitted changes)</span>
+<div class="meta"><span>built 2026-10-13 03:46 UTC</span><span>git dbec578 (uncommitted changes)</span>
 <span>8 scored run(s)</span><span>8 recorded experiment(s)</span></div>
 
 <div class="gauge">
 <div class="big warn">16.8 / 64</div>
 <div class="dim">pooled pass@1 over 6 attempts of the current
 configuration &middot; 95% CI &plusmn;1.2 tasks &middot; target 20
-&middot; ceiling 59 (5 tasks are unpassable by anyone)</div>
+&middot; ceiling 62 (2 tasks are unpassable by anyone)</div>
 <div class="bar"><div class="fill" style="width:26.3%"></div>
 <div class="target" style="left:31.2%"></div></div>
 <div class="dim" style="font-size:13px">gap to target:
@@ -61,10 +61,10 @@ pooled is the honest number</div></div>
 <div class="card refuted" style="border-left-width:4px">
 <h4 style="font-size:17px">Why this does not reach 20/64</h4>
 <p>Across up to 25 attempts each, <strong>32 of the 64 tasks have never been
-solved once</strong>. Five of those are unpassable by anyone &mdash; broken gold
-filenames, gold missing its own compared tables, and one task shipping 1 of the
-8 source tables it needs &mdash; so the real ceiling is
-<strong>59/64</strong>. The model solves 5 tasks every
+solved once</strong>. Two of those are unpassable by anyone &mdash; one whose gold lacks
+its own compared tables, one shipping 1 of the 8 source tables it needs &mdash;
+so the real ceiling is
+<strong>62/64</strong>. The model solves 5 tasks every
 time and another 27 <em>sometimes</em>; those 27 are worth 27 if made reliable
 and currently return 10.7, so <strong>16.3 tasks are locked up in
 flakiness</strong>.</p>
@@ -173,11 +173,12 @@ operationally indistinguishable &mdash; 19.1 vs 20.1 turns, 1.7 vs 2.2 tool
 errors. The variance is in the model's sampling, not in the harness.</p>
 
 <h3>Five tasks can never pass</h3>
-<p><code>xero_new001</code>, <code>xero_new002</code>, <code>social_media001</code>, <code>chinook001</code>, <code>tpch002</code> &mdash; verified
-0 of 9 attempts each across three runs. Broken gold filenames, gold missing the
-compared tables, and one task whose starting database ships 1 of the 8 source
-tables it needs. Report pass@1 on /64 and state the ceiling beside it;
-do not quietly switch denominators.</p>
+<p><code>chinook001</code>, <code>tpch002</code> &mdash; verified 0 of 9
+attempts each across three runs: one whose gold does not contain the tables its
+own spec compares, one whose starting database ships 1 of the 8 source tables it
+needs. Three further tasks were previously counted here; they were merely
+<em>unscoreable</em> through a filename typo in the eval set, now fixed, and they
+fail legitimately. Report pass@1 on /64 and state the ceiling beside it.</p>
 
 <h2>If you pick this up</h2>
 <ol>

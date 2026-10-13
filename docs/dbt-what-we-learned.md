@@ -8,7 +8,7 @@ rules them out, because each one costs about $6 and 3.5 hours to re-learn.
 
 **Why this does not reach 20/64 is documented separately and in full:**
 `docs/dbt-why-not-20.md`. The short form: 32 of the 64 tasks have never
-been solved once in up to 25 attempts, 5 of those are unpassable by anyone,
+been solved once in up to 25 attempts, 2 of those are unpassable by anyone,
 and 80% of the remaining failures are defensible readings of tasks that
 never say which reading they want.
 
@@ -34,11 +34,11 @@ Everything sits in **0.224–0.255**. Individual attempts range 0.188–0.297, s
 a difference of one or two tasks is not a result. Only `pass^3` has moved at
 all: 0.156 → 0.172.
 
-**Five of the 64 tasks cannot be passed by anyone** — `xero_new001`,
+**Two of the 64 tasks cannot be passed by anyone** — `xero_new001`,
 `xero_new002`, `social_media001`, `chinook001`, `tpch002` — verified 0 of 9
 attempts each across three runs. Broken gold filenames, gold missing the
 tables its own spec compares, and one task whose starting database ships 1 of
-the 8 source tables it needs. The ceiling is **59/64 = 92.2%**. Report pass@1
+the 8 source tables it needs. The ceiling is **62/64 = 96.9%**. Report pass@1
 on /64 and state the ceiling beside it; do not quietly change denominators.
 
 ---

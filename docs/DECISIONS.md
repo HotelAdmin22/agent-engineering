@@ -68,6 +68,18 @@ From the evaluator self-test (`scripts/selftest_evaluator`, results in
 `runs/dbt/_selftest/20261007-221405.json`): **59/64 pass gold-as-prediction**.
 The 5 that do not:
 
+> **RESOLVED 2026-10-12 (V10).** Option (c) is implemented:
+> `scoring._repair_gold_filename` places the single present gold file under
+> the spec's name **inside the staged scratch copy only**, and fires only when
+> the named file is absent and exactly one candidate exists. Re-running the
+> self-test on those tasks: **3/3 now pass gold-as-prediction**, gold hashes
+> unchanged, no scoring dirs left. The self-test figure becomes 62/64.
+>
+> It recovered no agent passes -- all three still score 0 against the correct
+> gold across three runs' submissions -- but they now fail for the real
+> reason. V12 (`chinook001`) and the `tpch002` source-data gap remain genuinely
+> unpassable, so the ceiling is **62/64**.
+
 | ID | Item | Task(s) | Effect |
 | --- | --- | --- | --- |
 | **V10** | Gold filename mismatch | `xero_new001`, `xero_new002` (spec names `xero.duckdb`, file is `xero_new.duckdb`); `social_media001` (spec names `social_media_reporting__rollup_report.duckdb`, file is `social_media.duckdb`) | The evaluator cannot open the gold file → always 0. Unpassable as shipped. Options: (a) leave as permanent fails, (b) swap them into the excluded 4, (c) in the *scratch copy only*, also place the gold under the spec's name. The manifest records `gold_file_present: false` for them. |

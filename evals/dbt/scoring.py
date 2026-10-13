@@ -55,6 +55,44 @@ def _eval_lines(spider2_root: Path, instance_id: str) -> str:
     raise KeyError(f"{instance_id} not in spider2_eval.jsonl")
 
 
+def _repair_gold_filename(staged: Path, spider2_root: Path, instance_id: str) -> str | None:
+    """Make the gold file reachable under the name its own eval spec uses.
+
+    Three tasks name a gold file their gold directory does not contain:
+
+        xero_new001, xero_new002   spec says xero.duckdb, dir has xero_new.duckdb
+        social_media001            spec says social_media_reporting__rollup_report.duckdb,
+                                   dir has social_media.duckdb
+
+    evaluate.py joins that filename literally -- no globbing -- so the open
+    raises, the exception is swallowed, and the task scores 0 regardless of
+    what the agent produced. That is a typo in Spider2's eval set, not a
+    verdict: the file that IS there contains every table the spec compares.
+
+    This copies it to the expected name **inside the staged scoring
+    directory**; the clone's gold is never touched. It is deliberately narrow
+    -- it fires only when the named file is missing AND exactly one .duckdb is
+    present, so there is nothing to choose between.
+
+    It is not a scoring concession. Verified against three runs' submissions:
+    all three tasks score 0 against the correct gold too. The point is that
+    they now fail for the real reason, so a future change that actually solved
+    one would be visible instead of silently discarded.
+    """
+    try:
+        line = json.loads(_eval_lines(spider2_root, instance_id))
+        wanted = line["evaluation"]["parameters"]["gold"]
+    except Exception:
+        return None
+    if not isinstance(wanted, str) or (staged / wanted).exists():
+        return None
+    present = sorted(staged.glob("*.duckdb"))
+    if len(present) != 1:
+        return None                      # ambiguous: let it fail honestly
+    shutil.copy2(present[0], staged / wanted)
+    return present[0].name
+
+
 def score_submission(submission: Path, instance_id: str, spider2_root: Path,
                      image: str, scoring_dir: Path, gold_override: Path | None = None,
                      user: str = "1000:1000") -> Score:
@@ -69,6 +107,7 @@ def score_submission(submission: Path, instance_id: str, spider2_root: Path,
     try:
         g = scoring_dir / "gold"
         shutil.copytree(gold_override or gold_dir(spider2_root, instance_id), g / instance_id)
+        _repair_gold_filename(g / instance_id, spider2_root, instance_id)
         # Only this task's line: evaluate.py scores the intersection of gold
         # and result ids, and the denominator must be this one task.
         (g / "spider2_eval.jsonl").write_text(_eval_lines(spider2_root, instance_id),

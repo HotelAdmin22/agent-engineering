@@ -30,7 +30,11 @@ LEDGER = ROOT / "experiments" / "results.jsonl"
 
 TARGET = 20          # tasks out of 64
 TASKS = 64
-UNWINNABLE = ["xero_new001", "xero_new002", "social_media001", "chinook001", "tpch002"]
+# Genuinely unpassable. Was five: xero_new001, xero_new002 and social_media001
+# were only UNSCOREABLE, a filename typo in the eval set, fixed 2026-10-12 in
+# scoring._repair_gold_filename. They now fail legitimately, which is why the
+# ceiling moved 59 -> 62 and this list shrank.
+UNWINNABLE = ["chinook001", "tpch002"]
 
 
 def git_state() -> str:
@@ -166,7 +170,7 @@ def gauge(runs: list[dict]) -> str:
 <div class="big {cls}">{est:.1f} / {TASKS}</div>
 <div class="dim">pooled pass@1 over {len(rates)} attempts of the current
 configuration &middot; 95% CI &plusmn;{ci:.1f} tasks &middot; target {TARGET}
-&middot; ceiling {TASKS - len(UNWINNABLE)} (5 tasks are unpassable by anyone)</div>
+&middot; ceiling {TASKS - len(UNWINNABLE)} (2 tasks are unpassable by anyone)</div>
 <div class="bar"><div class="fill" style="width:{pct:.1f}%"></div>
 <div class="target" style="left:{tgt:.1f}%"></div></div>
 <div class="dim" style="font-size:13px">gap to target:
@@ -229,9 +233,9 @@ records and the experiment ledger &mdash; never from the gold set.</p>
 <div class="card refuted" style="border-left-width:4px">
 <h4 style="font-size:17px">Why this does not reach {TARGET}/{TASKS}</h4>
 <p>Across up to 25 attempts each, <strong>32 of the 64 tasks have never been
-solved once</strong>. Five of those are unpassable by anyone &mdash; broken gold
-filenames, gold missing its own compared tables, and one task shipping 1 of the
-8 source tables it needs &mdash; so the real ceiling is
+solved once</strong>. Two of those are unpassable by anyone &mdash; one whose gold lacks
+its own compared tables, one shipping 1 of the 8 source tables it needs &mdash;
+so the real ceiling is
 <strong>{TASKS - len(UNWINNABLE)}/{TASKS}</strong>. The model solves 5 tasks every
 time and another 27 <em>sometimes</em>; those 27 are worth 27 if made reliable
 and currently return 10.7, so <strong>16.3 tasks are locked up in
@@ -341,11 +345,12 @@ operationally indistinguishable &mdash; 19.1 vs 20.1 turns, 1.7 vs 2.2 tool
 errors. The variance is in the model's sampling, not in the harness.</p>
 
 <h3>Five tasks can never pass</h3>
-<p>{", ".join(f"<code>{escape(t)}</code>" for t in UNWINNABLE)} &mdash; verified
-0 of 9 attempts each across three runs. Broken gold filenames, gold missing the
-compared tables, and one task whose starting database ships 1 of the 8 source
-tables it needs. Report pass@1 on /{TASKS} and state the ceiling beside it;
-do not quietly switch denominators.</p>
+<p>{", ".join(f"<code>{escape(t)}</code>" for t in UNWINNABLE)} &mdash; verified 0 of 9
+attempts each across three runs: one whose gold does not contain the tables its
+own spec compares, one whose starting database ships 1 of the 8 source tables it
+needs. Three further tasks were previously counted here; they were merely
+<em>unscoreable</em> through a filename typo in the eval set, now fixed, and they
+fail legitimately. Report pass@1 on /{TASKS} and state the ceiling beside it.</p>
 
 <h2>If you pick this up</h2>
 <ol>
